@@ -1,211 +1,190 @@
 # Riga Guide Bot — Project Brief for Claude
 
-> **Date:** 2026-04-15
-> **Status:** Research phase complete. Ready for User Spec / Tech Spec.
+> **Date:** 2026-04-15 (обновлено)
+> **Status:** Implementation phase — M6 интеграция RAG в Gateway
 > **Methodology:** Molyanov (spec-driven pipeline)
-> **Next step:** Create User Spec → Tech Spec → Architecture → Implementation
+> **Git commit:** `611dffd` — initial commit, 86 files, 10170 insertions
 
 ---
 
-## 1. Project Overview
+## Текущее состояние
 
-**What:** AI-powered Telegram bot that acts as a tour guide for Latvia.
-**How it works:** User sends a photo of a landmark, geolocation, or text query → bot identifies the place → responds with a short encyclopedic summary (2-3 sentences) followed by a vivid storyteller-style narrative (7-8 sentences) with history, legends, and interesting facts.
+### Что сделал Claude (блоки A–G):
+- **A** `src/bot/i18n_ru.py` — все литералы бота
+- **B** `src/rag/singleton.py` — lazy-init RAG-графа (KBStore, GeminiClient, TavilyClient)
+- **C** `src/bot/gateway.py::on_text` — подключён к `run_rag()` + i18n
+- **E** `src/bot/gateway.py::on_tell_cb` — callback `tell:<place_id>`
+- **G** `src/bot/gateway.py::on_more_legend_cb` — callback `more_legend:<place_id>`
+- RAG-граф: `src/rag/graph.py`, ноды `vision`, `text_search`, `retrieve`, `grade`, `generate`, `halluck_check`, `web_search`, `geo`
+- Промпты: `generator.j2`, `halluck.j2`, `vision.j2`
+- LLM клиенты: `src/llm/gemini.py`, `src/llm/tavily.py`, `src/llm/retry.py`
+- Session: `src/session/store.py`, `src/session/models.py`
+- KB: `src/kb/store.py`, `src/kb/models.py`
+- Интеграционные тесты: `test_kb.py`, `test_rag_graph.py`, `test_session.py`
 
-**Target cities (MVP):** Riga, Sigulda, Rundāle (expandable to all Latvia).
-**Target coverage:** 150-300 places in MVP.
-
----
-
-## 2. Decisions Made
-
-| # | Question | Decision |
-|---|----------|----------|
-| 1 | Bot language | **Russian only** |
-| 2 | Input methods | **Photo + Geolocation + Text query** (all three) |
-| 3 | Response style | **Hybrid:** 2-3 sentences encyclopedic summary, then 7-8 sentences vivid storyteller narrative |
-| 4 | TTS / Audio | **Deferred** (not in MVP) |
-| 5 | Deployment | **Self-hosted VPS** (owner's server) |
-| 6 | LLM provider | **Google Gemini** |
-| 7 | MVP scope | **150-300 places** across Riga, Sigulda, Rundāle |
-
----
-
-## 3. Recommended Tech Stack
-
-| Component | Technology | Rationale |
-|-----------|-----------|-----------|
-| **Bot framework** | python-telegram-bot | Mature async library, well-documented |
-| **Vision (photo recognition)** | Google Gemini 2.5 Flash/Pro | Best price/quality for landmark recognition |
-| **RAG framework** | LangChain / LangGraph | Adaptive RAG pattern from reference project |
-| **Vector store** | Chroma (MVP) → Pinecone (prod) | Chroma for local dev, Pinecone for scale |
-| **LLM (text generation)** | Gemini 2.5 Flash | Fast, cheap, multilingual |
-| **Web search (fallback)** | Tavily API | For real-time data (hours, prices, events) |
-| **Database** | SQLite (MVP) → PostgreSQL (prod) | User data, cache, analytics |
-| **Deployment** | Docker on owner's VPS | Self-hosted, full control |
+### Что сделал Antigravity (блоки AG1–AG6 + tagger):
+- **AG1** `src/bot/photo_utils.py` — `download_largest()` + 9 тестов
+- **AG2** Расширенные тесты: `test_ui.py` (23), `test_rate_limit.py` (13), `test_chunker.py` (17)
+- **AG3** `scripts/run_hitl.py` — **подключён к реальному `run_rag()`** (не заглушка)
+- **AG4** `scripts/backup.sh` + `scripts/daily_rollup.py`
+- **AG5** `ingest/scrapers/wikipedia.py` + `ingest/scrapers/firecrawl.py` + `ingest/seeds/riga.yaml`
+- **AG6** `DEPLOY.md`
+- **Tagger** `ingest/tagger.py` + `src/rag/prompts/tagger.j2` + `tests/ingest/test_tagger.py` (18 тестов)
 
 ---
 
-## 4. Architecture
+## Что осталось для Claude
 
-```
-User (Telegram)
-  │
-  ├── Photo ──→ Vision Agent (Gemini Vision) ──→ Landmark ID
-  ├── Geolocation ──→ Geo Resolver (reverse geocoding) ──→ Landmark ID
-  └── Text query ──→ Text Search (vector similarity) ──→ Landmark ID
-                                                            │
-                                                            ▼
-                                                     RAG Engine
-                                                    ┌──────────────┐
-                                                    │ Router        │
-                                                    │  ↓            │
-                                                    │ Retriever     │ ←── Knowledge Base (Chroma)
-                                                    │  ↓            │
-                                                    │ Web Search    │ ←── Tavily (fallback)
-                                                    │  ↓            │
-                                                    │ Context Grader│
-                                                    │  ↓            │
-                                                    │ Generator     │ ←── Gemini Flash
-                                                    │  ↓            │
-                                                    │ Hallucination │
-                                                    │   Check       │
-                                                    └──────┬───────┘
-                                                           │
-                                                           ▼
-                                                    Response to User
-                                                    ┌──────────────┐
-                                                    │ 📖 Summary:   │
-                                                    │ 2-3 sentences │
-                                                    │ (encyclopedic)│
-                                                    │               │
-                                                    │ 🎭 Story:     │
-                                                    │ 7-8 sentences │
-                                                    │ (storyteller) │
-                                                    └──────────────┘
+### Блок D — on_location (geo)
+- `src/bot/gateway.py::on_location` — подключить geo_nearby ноду, использовать `i18n.GEO_OUT_OF_COVERAGE`
+
+### Блок F — Two-stage photo flow (ГЛАВНОЕ)
+- `src/bot/gateway.py::on_photo` — использовать `photo_utils.download_largest()` + vision → interim_ack → run_rag
+- Двухэтапный ответ: сначала interim "📸 Собираю историю о <b>{place}</b>", потом полный ответ
+
+### Блок H — ingest/pipeline.py
+- Оркестратор: scrape → chunk → tag → embed → store
+- **ВАЖНО:** `ingest/tagger.py` уже готов — использовать `tag_chunk()`
+- `ingest/chunker.py` уже готов
+- `ingest/scrapers/wikipedia.py` и `ingest/scrapers/firecrawl.py` — готовы
+
+### Блок I — ingest/__main__.py
+- CLI entry point: `python -m ingest --source wikipedia --cities riga`
+- Связать pipeline.py с CLI argparse
+
+---
+
+## Ключевые контракты для Claude
+
+### photo_utils (AG использует в блоке F)
+```python
+from src.bot.photo_utils import download_largest
+# async def download_largest(message: Message, max_bytes=10_000_000) -> bytes
+# Выбирает max(width*height) из message.photo, скачивает через Bot API
+# ValueError при превышении max_bytes
 ```
 
----
-
-## 5. Response Format Specification
-
-Each bot response should follow this structure:
-
-```
-🏛️ [Landmark Name]
-
-[2-3 sentences: factual, encyclopedic summary — what it is, when built, by whom, architectural style]
-
-[7-8 sentences: vivid storyteller narrative — legends, historical anecdotes, little-known facts, 
-atmosphere, what makes this place special. Written as if a passionate local guide is telling you 
-the story in person.]
-
-📍 [Address if available]
+### tagger (AG использует в блоке H)
+```python
+from ingest.tagger import tag_chunk
+# async def tag_chunk(chunk_text: str, gemini_client=None) -> dict | None
+# Возвращает: {place_id, place_name, tags: [str], coords: {lat,lon}|None, era: str|None}
+# None при: пустом входе, невалидном JSON, ошибке API
+# gemini_client=None → lazy-загрузка через get_gemini_client()
 ```
 
-**Language:** Russian only.
-**Tone:** The encyclopedic part is neutral and informative. The storyteller part is warm, engaging, literary — like a knowledgeable friend sharing secrets of the city.
+### singleton (Claude создал)
+```python
+from src.rag.singleton import get_rag_graph, run_rag, get_gemini_client
+# run_rag(state) — async хелпер, берёт граф-синглтон
+# get_gemini_client() — lazy-init Gemini клиента
+```
+
+### HITL runner (подключён)
+```python
+# scripts/run_hitl.py --text-pack docs/hitl_text_pack.yaml --out results.csv
+# Использует run_rag() напрямую из singleton
+```
 
 ---
 
-## 6. Content Strategy — "3-Level Funnel"
-
-### Level 1: Automated Scraping (for bulk data)
-
-| Source | Language | Method |
-|--------|----------|--------|
-| latvia.travel | EN/RU/LV | Firecrawl → markdown |
-| riga.lv/en/rigas-vesture | EN/LV | Firecrawl → markdown |
-| UNESCO: Historic Centre of Riga | EN | API / scrape |
-| rundale.net (history + legends) | EN/LV | Scrape + manual curation |
-| Britannica: Riga | EN | API |
-| Wikipedia (Riga + related) | Multi | Wikipedia API |
-| Eupedia: Riga Travel Guide | EN | Scrape |
-
-### Level 2: Curated Content (best for legends & stories)
-
-| Source | Language | Value |
-|--------|----------|-------|
-| VoiceMap: Latvian Legends & History | EN | Living legends, ideal narrative tone |
-| LiveJournal blogs (kot-bayun, kolllak) | RU | Literary style, photos, stories |
-| ABHT (abht.lv) | RU/EN | Professional guide content |
-| travellgide.ru/riga | RU | Structured info |
-| Sputnik8 | RU | Professional guide descriptions |
-
-### Level 3: Academic & Archival
-
-| Source | Language | Value |
-|--------|----------|-------|
-| digitalabiblioteka.lv | LV/EN | Digitized historical texts |
-| dom.lndb.lv (National Library) | LV | Academic publications |
-| Peek: Riga Old Town Legends | EN | Paganism, Reformation, folklore |
-
-> **Legal note:** Commercial source content should be used as INSPIRATION only for LLM-generated original texts, never copied directly.
-
----
-
-## 7. Reference Projects (Top 3)
-
-### 7.1 telegram-smartguide-bot (Closest analog)
-- **What:** Telegram bot for Saint Petersburg
-- **Stack:** Node.js, GPT-4o, Yandex Geosuggest
-- **Pattern:** User sends geolocation → finds nearby places → GPT generates narrative
-- **GitHub:** https://github.com/maslowivan/telegram-smartguide-bot
-
-### 7.2 Discovery — aiagentsirl-hackathon (UX reference)
-- **What:** 1st place hackathon project — point camera at landmark → AI describes + audio
-- **Stack:** Flask, Gemma 3, Gemini 2.5, ElevenLabs, React Native
-- **Pattern:** Vision Agent → Description Agent → Audio Agent pipeline
-- **GitHub:** https://github.com/manfredi31/aiagentsirl-hackathon
-
-### 7.3 travel-guide-adaptive-rag (Architecture reference)
-- **What:** Adaptive RAG travel guide for Istanbul
-- **Stack:** LangGraph, OpenAI, Chroma, Tavily, Gradio
-- **Pattern:** Router → Retriever/Web Search → Grader → Generator → Hallucination Check
-- **GitHub:** https://github.com/enesbesinci/travel-guide-adaptive-rag
-
----
-
-## 8. Key Insight
-
-> **Zero competition:** None of the 15 analyzed projects cover Latvia. This bot will be the first AI tour guide for Riga and Latvian landmarks.
-
----
-
-## 9. Project Rules & Conventions
-
-- **Communication language:** Russian (user-facing docs, README, PROTOCOL)
-- **Code comments:** Russian
-- **Tech docs (architecture, specs):** English
-- **Code (variables, functions, classes):** English
-- **Security:** No hardcoded secrets. Use `.env` files. Always `.gitignore` sensitive files.
-- **Protocol:** Update `PROTOCOL.md` after each completed task (date, tasks, results, sources, insights).
-- **Methodology:** Follow Molyanov pipeline — User Spec → Tech Spec → Architecture → Implementation → Testing → Deploy.
-
----
-
-## 10. File Structure (Current)
+## Файловая структура (актуальная)
 
 ```
 Riga_guide/
-├── PROTOCOL.md          # Session journal (active)
-├── CLAUDE_BRIEF.md      # This file — project handoff brief
-└── (next: docs/, src/, etc. — to be created during implementation)
+├── PROTOCOL.md              # Журнал разработки
+├── CLAUDE_BRIEF.md          # Этот файл — handoff для Claude
+├── DEPLOY.md                # Инструкция деплоя
+├── README.md
+├── Dockerfile
+├── docker-compose.yml
+├── pyproject.toml
+├── .env.example              # Шаблон env (включая FIRECRAWL_API_KEY)
+│
+├── docs/
+│   ├── USER_SPEC.md
+│   ├── TECH_SPEC.md
+│   ├── ARCHITECTURE.md
+│   └── IMPLEMENTATION_PLAN.md
+│
+├── src/
+│   ├── config.py
+│   ├── bot/
+│   │   ├── gateway.py        # ← Claude: D, F
+│   │   ├── photo_utils.py    # ✅ AG1 — download_largest()
+│   │   ├── ui.py
+│   │   ├── rate_limit.py
+│   │   └── i18n_ru.py
+│   ├── kb/
+│   │   ├── models.py         # Place, Passage, PassageTopic
+│   │   └── store.py          # KBStore (Chroma + SQLite)
+│   ├── llm/
+│   │   ├── gemini.py         # GeminiClient
+│   │   ├── tavily.py         # TavilyClient
+│   │   └── retry.py
+│   ├── rag/
+│   │   ├── graph.py          # build_graph(), run_rag()
+│   │   ├── singleton.py      # get_rag_graph(), run_rag(), get_gemini_client()
+│   │   ├── state.py
+│   │   ├── nodes/            # vision, text_search, retrieve, grade, generate, halluck_check, web_search, geo
+│   │   └── prompts/
+│   │       ├── generator.j2
+│   │       ├── halluck.j2
+│   │       ├── vision.j2
+│   │       └── tagger.j2     # ✅ AG — для ingest/tagger.py
+│   ├── session/
+│   │   ├── models.py
+│   │   └── store.py
+│   └── telemetry/
+│       └── log.py
+│
+├── ingest/
+│   ├── __main__.py           # ← Claude: блок I
+│   ├── chunker.py            # ✅ готов
+│   ├── tagger.py             # ✅ AG — tag_chunk()
+│   ├── scraper.py            # legacy monolith (можно заменить)
+│   ├── geo.py
+│   ├── scrapers/
+│   │   ├── wikipedia.py      # ✅ AG5 — WikipediaScraper
+│   │   └── firecrawl.py      # ✅ AG5 — FirecrawlScraper
+│   └── seeds/
+│       └── riga.yaml         # 19 seed-страниц Wikipedia
+│
+├── scripts/
+│   ├── run_hitl.py           # ✅ AG3 — HITL runner (→ run_rag)
+│   ├── daily_rollup.py       # ✅ AG4 — M2/M3/M5 метрики
+│   ├── backup.sh             # ✅ AG4 — rsync + prune
+│   └── README.md
+│
+└── tests/
+    ├── unit/
+    │   ├── test_ui.py         # 23 теста
+    │   ├── test_rate_limit.py # 13 тестов
+    │   ├── test_chunker.py    # 17 тестов
+    │   ├── test_photo_utils.py# 9 тестов
+    │   ├── test_config.py
+    │   ├── test_log.py
+    │   ├── test_prompts.py
+    │   └── test_retry.py
+    ├── ingest/
+    │   └── test_tagger.py     # 18 тестов
+    ├── integration/
+    │   ├── test_kb.py
+    │   ├── test_rag_graph.py
+    │   └── test_session.py
+    └── fixtures/
+        └── fake_gemini.py
 ```
 
 ---
 
-## 11. Next Steps (Pipeline)
+## Правила взаимодействия
 
-1. ✅ **Research** — Complete
-2. ⏳ **User Spec** — Write detailed user specification (user stories, scenarios, UI/UX flows)
-3. 🔲 **Tech Spec** — Detailed technical specification (API contracts, data models, integrations)
-4. 🔲 **Architecture** — System design, component diagram, deployment diagram
-5. 🔲 **Implementation** — Build MVP
-6. 🔲 **Content Pipeline** — Scrape and curate 150-300 places
-7. 🔲 **Testing** — Unit tests, integration tests, HITL testing
-8. 🔲 **Deploy** — Docker on VPS
+1. **Не трогать файлы AG:** `photo_utils.py`, `tagger.py`, `scrapers/*.py`, `scripts/*`, `DEPLOY.md` — это зона Antigravity.
+2. **Использовать контракты AG:** `download_largest()` в блоке F, `tag_chunk()` в блоке H.
+3. **PROTOCOL.md:** после каждого завершённого блока добавлять запись с маркером 🤖 Claude Code.
+4. **Тесты:** запускать `pytest tests/` после каждого блока.
 
 ---
 
-*This brief contains all context needed to continue development from any point.*
+*Этот бриф содержит весь контекст для продолжения разработки с любой точки.*
