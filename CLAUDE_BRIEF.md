@@ -1,19 +1,23 @@
 # Riga Guide Bot — Project Brief for Claude
 
-> **Date:** 2026-04-15 (обновлено)
-> **Status:** Implementation phase — M6 интеграция RAG в Gateway
+> **Date:** 2026-04-15 (финальное обновление сессии AG)
+> **Status:** Implementation phase — M6 + M7 ЗАВЕРШЕНЫ. Переходим к M8 Content Seed.
 > **Methodology:** Molyanov (spec-driven pipeline)
-> **Git commit:** `611dffd` — initial commit, 86 files, 10170 insertions
+> **Git commits:** `611dffd` → `547429c` → `5b49bec` (последний — pipeline + CLI)
 
 ---
 
 ## Текущее состояние
 
+### ✅ Все задачи M1–M7 закрыты
+
 ### Что сделал Claude (блоки A–G):
 - **A** `src/bot/i18n_ru.py` — все литералы бота
 - **B** `src/rag/singleton.py` — lazy-init RAG-графа (KBStore, GeminiClient, TavilyClient)
 - **C** `src/bot/gateway.py::on_text` — подключён к `run_rag()` + i18n
+- **D** `src/bot/gateway.py::on_location` — geo_nearby через KBStore
 - **E** `src/bot/gateway.py::on_tell_cb` — callback `tell:<place_id>`
+- **F** `src/bot/gateway.py::on_photo` — двухэтапный ответ (interim ack + run_rag)
 - **G** `src/bot/gateway.py::on_more_legend_cb` — callback `more_legend:<place_id>`
 - RAG-граф: `src/rag/graph.py`, ноды `vision`, `text_search`, `retrieve`, `grade`, `generate`, `halluck_check`, `web_search`, `geo`
 - Промпты: `generator.j2`, `halluck.j2`, `vision.j2`
@@ -22,68 +26,73 @@
 - KB: `src/kb/store.py`, `src/kb/models.py`
 - Интеграционные тесты: `test_kb.py`, `test_rag_graph.py`, `test_session.py`
 
-### Что сделал Antigravity (блоки AG1–AG6 + tagger):
+### Что сделал Antigravity (AG1–AG6 + tagger + pipeline):
 - **AG1** `src/bot/photo_utils.py` — `download_largest()` + 9 тестов
 - **AG2** Расширенные тесты: `test_ui.py` (23), `test_rate_limit.py` (13), `test_chunker.py` (17)
-- **AG3** `scripts/run_hitl.py` — **подключён к реальному `run_rag()`** (не заглушка)
+- **AG3** `scripts/run_hitl.py` — подключён к реальному `run_rag()` (не заглушка)
 - **AG4** `scripts/backup.sh` + `scripts/daily_rollup.py`
 - **AG5** `ingest/scrapers/wikipedia.py` + `ingest/scrapers/firecrawl.py` + `ingest/seeds/riga.yaml`
 - **AG6** `DEPLOY.md`
-- **Tagger** `ingest/tagger.py` + `src/rag/prompts/tagger.j2` + `tests/ingest/test_tagger.py` (18 тестов)
+- **Tagger** `ingest/tagger.py` + `src/rag/prompts/tagger.j2` + 18 тестов
+- **Pipeline** `ingest/pipeline.py` — оркестратор scrape→chunk→tag→embed→store + 19 тестов
+- **CLI** `ingest/__main__.py` — `python -m ingest --source wikipedia|firecrawl|text`
 
 ---
 
-## Что осталось для Claude
+## Следующие шаги (M8–M10)
 
-### Блок D — on_location (geo)
-- `src/bot/gateway.py::on_location` — подключить geo_nearby ноду, использовать `i18n.GEO_OUT_OF_COVERAGE`
+### M8 — Content Seed (30 пилотных мест)
+1. Natalja выбирает 30 мест → `docs/pilot_places.md`
+2. Прогнать `python -m ingest --source wikipedia --limit 30`
+3. Тестировать качество ответов, подкрутить промпты
+4. Критерий: ≥ 4/5 ответов «можно показывать гостям»
 
-### Блок F — Two-stage photo flow (ГЛАВНОЕ)
-- `src/bot/gateway.py::on_photo` — использовать `photo_utils.download_largest()` + vision → interim_ack → run_rag
-- Двухэтапный ответ: сначала interim "📸 Собираю историю о <b>{place}</b>", потом полный ответ
+### M9 — Tests & HITL Pack
+1. HITL smoke pack: 20 фото + 10 текстов (от Natalja)
+2. Расширить интеграционные тесты
+3. `pytest` проходит < 60 сек, recognition ≥ 70%
 
-### Блок H — ingest/pipeline.py
-- Оркестратор: scrape → chunk → tag → embed → store
-- **ВАЖНО:** `ingest/tagger.py` уже готов — использовать `tag_chunk()`
-- `ingest/chunker.py` уже готов
-- `ingest/scrapers/wikipedia.py` и `ingest/scrapers/firecrawl.py` — готовы
-
-### Блок I — ingest/__main__.py
-- CLI entry point: `python -m ingest --source wikipedia --cities riga`
-- Связать pipeline.py с CLI argparse
+### M10 — Deploy
+1. VPS: Docker, clone, `.env` с секретами
+2. `docker compose up -d bot`
+3. Smoke test из реального Telegram
 
 ---
 
-## Ключевые контракты для Claude
+## Ключевые контракты
 
-### photo_utils (AG использует в блоке F)
+### pipeline (AG — для прогона M8)
+```python
+from ingest.pipeline import IngestPipeline
+pipeline = IngestPipeline()
+stats = await pipeline.run_wikipedia(seeds_path="ingest/seeds/riga.yaml", limit=5)
+# stats.summary() → "Sources: 5/5 OK | Chunks: 42 total, 42 tagged, 42 stored | Places: 5 | Errors: 0"
+```
+
+### CLI (AG — для прогона M8)
+```bash
+python -m ingest --source wikipedia --limit 5
+python -m ingest --source firecrawl --urls https://latvia.travel/ru
+python -m ingest --source text --title "Домский собор" --text-file dome.txt
+```
+
+### photo_utils
 ```python
 from src.bot.photo_utils import download_largest
-# async def download_largest(message: Message, max_bytes=10_000_000) -> bytes
-# Выбирает max(width*height) из message.photo, скачивает через Bot API
-# ValueError при превышении max_bytes
+# async def download_largest(message, max_bytes=10_000_000) -> bytes
 ```
 
-### tagger (AG использует в блоке H)
+### tagger
 ```python
 from ingest.tagger import tag_chunk
-# async def tag_chunk(chunk_text: str, gemini_client=None) -> dict | None
-# Возвращает: {place_id, place_name, tags: [str], coords: {lat,lon}|None, era: str|None}
-# None при: пустом входе, невалидном JSON, ошибке API
-# gemini_client=None → lazy-загрузка через get_gemini_client()
+# async def tag_chunk(chunk_text, gemini_client=None) -> dict | None
+# {place_id, place_name, tags: [str], coords: {lat,lon}|None, era: str|None}
 ```
 
-### singleton (Claude создал)
+### singleton
 ```python
 from src.rag.singleton import get_rag_graph, run_rag, get_gemini_client
 # run_rag(state) — async хелпер, берёт граф-синглтон
-# get_gemini_client() — lazy-init Gemini клиента
-```
-
-### HITL runner (подключён)
-```python
-# scripts/run_hitl.py --text-pack docs/hitl_text_pack.yaml --out results.csv
-# Использует run_rag() напрямую из singleton
 ```
 
 ---
@@ -99,7 +108,7 @@ Riga_guide/
 ├── Dockerfile
 ├── docker-compose.yml
 ├── pyproject.toml
-├── .env.example              # Шаблон env (включая FIRECRAWL_API_KEY)
+├── .env.example
 │
 ├── docs/
 │   ├── USER_SPEC.md
@@ -110,50 +119,49 @@ Riga_guide/
 ├── src/
 │   ├── config.py
 │   ├── bot/
-│   │   ├── gateway.py        # ← Claude: D, F
-│   │   ├── photo_utils.py    # ✅ AG1 — download_largest()
-│   │   ├── ui.py
-│   │   ├── rate_limit.py
-│   │   └── i18n_ru.py
+│   │   ├── gateway.py        # ✅ Все хендлеры — Claude
+│   │   ├── photo_utils.py    # ✅ AG1
+│   │   ├── ui.py             # ✅ AG
+│   │   ├── rate_limit.py     # ✅ AG
+│   │   └── i18n_ru.py        # ✅ Claude
 │   ├── kb/
-│   │   ├── models.py         # Place, Passage, PassageTopic
-│   │   └── store.py          # KBStore (Chroma + SQLite)
+│   │   ├── models.py         # ✅ Place, Passage
+│   │   └── store.py          # ✅ KBStore
 │   ├── llm/
-│   │   ├── gemini.py         # GeminiClient
-│   │   ├── tavily.py         # TavilyClient
-│   │   └── retry.py
+│   │   ├── gemini.py         # ✅
+│   │   ├── tavily.py         # ✅
+│   │   └── retry.py          # ✅
 │   ├── rag/
-│   │   ├── graph.py          # build_graph(), run_rag()
-│   │   ├── singleton.py      # get_rag_graph(), run_rag(), get_gemini_client()
-│   │   ├── state.py
-│   │   ├── nodes/            # vision, text_search, retrieve, grade, generate, halluck_check, web_search, geo
+│   │   ├── graph.py          # ✅ build_graph()
+│   │   ├── singleton.py      # ✅ run_rag()
+│   │   ├── state.py          # ✅
+│   │   ├── nodes/            # ✅ vision, text_search, retrieve, grade, generate, halluck_check, web_search, geo
 │   │   └── prompts/
-│   │       ├── generator.j2
-│   │       ├── halluck.j2
-│   │       ├── vision.j2
-│   │       └── tagger.j2     # ✅ AG — для ingest/tagger.py
+│   │       ├── generator.j2  # ✅
+│   │       ├── halluck.j2    # ✅
+│   │       ├── vision.j2     # ✅
+│   │       └── tagger.j2     # ✅ AG
 │   ├── session/
-│   │   ├── models.py
-│   │   └── store.py
+│   │   ├── models.py         # ✅
+│   │   └── store.py          # ✅
 │   └── telemetry/
-│       └── log.py
+│       └── log.py            # ✅
 │
 ├── ingest/
-│   ├── __main__.py           # ← Claude: блок I
-│   ├── chunker.py            # ✅ готов
-│   ├── tagger.py             # ✅ AG — tag_chunk()
-│   ├── scraper.py            # legacy monolith (можно заменить)
-│   ├── geo.py
+│   ├── __main__.py           # ✅ AG — CLI
+│   ├── pipeline.py           # ✅ AG — оркестратор
+│   ├── chunker.py            # ✅ AG
+│   ├── tagger.py             # ✅ AG
 │   ├── scrapers/
-│   │   ├── wikipedia.py      # ✅ AG5 — WikipediaScraper
-│   │   └── firecrawl.py      # ✅ AG5 — FirecrawlScraper
+│   │   ├── wikipedia.py      # ✅ AG5
+│   │   └── firecrawl.py      # ✅ AG5
 │   └── seeds/
-│       └── riga.yaml         # 19 seed-страниц Wikipedia
+│       └── riga.yaml         # 19 seed-страниц
 │
 ├── scripts/
-│   ├── run_hitl.py           # ✅ AG3 — HITL runner (→ run_rag)
-│   ├── daily_rollup.py       # ✅ AG4 — M2/M3/M5 метрики
-│   ├── backup.sh             # ✅ AG4 — rsync + prune
+│   ├── run_hitl.py           # ✅ AG3 — HITL runner
+│   ├── daily_rollup.py       # ✅ AG4
+│   ├── backup.sh             # ✅ AG4
 │   └── README.md
 │
 └── tests/
@@ -167,7 +175,8 @@ Riga_guide/
     │   ├── test_prompts.py
     │   └── test_retry.py
     ├── ingest/
-    │   └── test_tagger.py     # 18 тестов
+    │   ├── test_tagger.py     # 18 тестов
+    │   └── test_pipeline.py   # 19 тестов
     ├── integration/
     │   ├── test_kb.py
     │   ├── test_rag_graph.py
@@ -180,10 +189,10 @@ Riga_guide/
 
 ## Правила взаимодействия
 
-1. **Не трогать файлы AG:** `photo_utils.py`, `tagger.py`, `scrapers/*.py`, `scripts/*`, `DEPLOY.md` — это зона Antigravity.
-2. **Использовать контракты AG:** `download_largest()` в блоке F, `tag_chunk()` в блоке H.
-3. **PROTOCOL.md:** после каждого завершённого блока добавлять запись с маркером 🤖 Claude Code.
-4. **Тесты:** запускать `pytest tests/` после каждого блока.
+1. **M6 + M7 полностью закрыты.** Все хендлеры, RAG-граф, pipeline — рабочие.
+2. **PROTOCOL.md:** после каждого блока добавлять запись с маркером 🤖 Claude Code или 🛠️ Antigravity.
+3. **Тесты:** `pytest tests/` после каждого изменения.
+4. **Следующая задача:** M8 Content Seed — прогон ingest, оценка качества.
 
 ---
 

@@ -1,10 +1,10 @@
 # PROTOCOL — Riga Guide Bot
 
 ## Текущий фокус
-**Фаза:** Implementation — M6 интеграция RAG в Gateway.
-**Статус:** Claude закрыл блоки A (i18n_ru), B (rag/singleton), C (on_text), E+G (followup callbacks tell/more_legend). AG закрыл AG1–AG6.
-**Следующий ход Claude:** блок D (подкрутить on_location error → GEO_OUT_OF_COVERAGE) → **блок F (two-stage photo)** — главное оставшееся → H/I (tagger + ingest pipeline).
-**AG:** HITL runner подключён к реальному `run_rag()` из singleton — заглушка убрана.
+**Фаза:** Implementation — M7 ingest pipeline завершён. M8 Content Seed и M9 Tests — следующие.
+**Статус:** Claude закрыл блоки A–G (i18n, singleton, on_text, on_photo, on_location, callbacks). AG закрыл AG1–AG6 + tagger + pipeline (H+I).
+**Все M6 + M7 задачи закрыты.** Gateway полностью интегрирован с RAG. Ingest pipeline готов к прогону.
+**Следующий ход:** M8 — Content Seed (30 пилотных мест, прогон ingest, оценка качества). M9 — расширенные тесты.
 
 ---
 
