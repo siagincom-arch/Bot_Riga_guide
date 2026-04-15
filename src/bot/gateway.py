@@ -15,6 +15,7 @@ from telegram import Update
 from telegram.ext import ContextTypes
 
 from src.bot import i18n_ru as i18n
+from src.bot.photo_utils import download_largest
 from src.bot.rate_limit import RateLimiter
 from src.bot.ui import (
     format_answer,
@@ -127,37 +128,98 @@ async def on_about(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 async def on_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """
-    Обработка фото — Vision → двухэтапный ответ.
+    Обработка фото — двухэтапный ответ (ADR-5).
 
     TECH_SPEC §4.2: on_photo.
-    M6.6 (двухэтапный ответ) — Claude доработает.
+    Flow: PHOTO_SEEING → download → run_rag(photo) → (interim ack с place_name?) → полный ответ.
+    Два отдельных reply_text (не edit), чтобы триггерить push-уведомления.
     """
     chat_id = update.effective_chat.id  # type: ignore[union-attr]
     start_time = time.monotonic()
 
     logger.info("msg.photo", chat_id=chat_id)
 
-    # Rate limit
     if not _check_rate_limit(chat_id):
         await update.message.reply_text(i18n.RATE_LIMIT_HIT)  # type: ignore[union-attr]
         return
 
-    # TODO (M5 + M6.6 — Claude): полный pipeline
-    # 1. Скачать фото (largest size)
-    # 2. Vision identify → name, confidence
-    # 3. Interim ack (format_interim_ack)
-    # 4. RAG graph → summary + story
-    # 5. Отправить полный ответ + клавиатуру
-    # 6. Обновить сессию
+    # Первое сообщение — «смотрю фото» (сразу, до скачивания).
+    await update.message.reply_text(i18n.PHOTO_SEEING, parse_mode="HTML")  # type: ignore[union-attr]
 
-    # Временная заглушка (будет заменена в блоке F — two-stage photo)
-    await update.message.reply_text(  # type: ignore[union-attr]
-        i18n.PHOTO_SEEING,
-        parse_mode="HTML",
-    )
+    # Сессия
+    store = get_session_store()
+    session = store.get(chat_id) or Session(chat_id=chat_id)
+
+    status = "ok"
+    place_id: str | None = None
+
+    # Скачивание фото
+    try:
+        image_bytes = await download_largest(update.message)  # type: ignore[arg-type]
+    except ValueError as e:
+        logger.warning("msg.photo.download_error", error=str(e))
+        await update.message.reply_text(i18n.PHOTO_DOWNLOAD_ERROR)  # type: ignore[union-attr]
+        session.add_message(MsgRole.USER, "[photo: download_error]")
+        try:
+            store.upsert(session)
+        except Exception as se:
+            logger.warning("session.update.error", error=str(se))
+        latency = int((time.monotonic() - start_time) * 1000)
+        log_request(logger, chat_id=chat_id, input_type="photo", status="download_error", latency_ms=latency)
+        return
+
+    # RAG
+    try:
+        result = await run_rag({
+            "input_type": "photo",
+            "image_bytes": image_bytes,
+            "chat_id": chat_id,
+            "session_history": _session_history_for_rag(session),
+        })
+        status = result.get("status") or "ok"
+        place_id = result.get("place_id")
+        place_name = result.get("place_name")
+
+        if status == "not_recognized":
+            await update.message.reply_text(  # type: ignore[union-attr]
+                i18n.PHOTO_NOT_RECOGNIZED, parse_mode="HTML"
+            )
+            session.add_message(MsgRole.USER, "[photo: not_recognized]")
+        elif status in ("llm_error", "timeout"):
+            await update.message.reply_text(i18n.VISION_ERROR)  # type: ignore[union-attr]
+            session.add_message(MsgRole.USER, "[photo: llm_error]")
+        else:
+            # Interim ack — отдельным сообщением, чтобы триггерить push (ADR-5).
+            if place_name:
+                await update.message.reply_text(  # type: ignore[union-attr]
+                    i18n.PHOTO_INTERIM_ACK_TMPL.format(place_name=place_name),
+                    parse_mode="HTML",
+                )
+
+            answer = _compose_answer(result)
+            keyboard = make_place_keyboard(place_id) if place_id else None
+            await update.message.reply_text(  # type: ignore[union-attr]
+                answer, parse_mode="HTML", reply_markup=keyboard
+            )
+
+            session.add_message(MsgRole.USER, f"[photo: {place_name or 'неизвестно'}]")
+            session.add_message(MsgRole.BOT, (result.get("summary") or "")[:500])
+            if place_id:
+                session.last_place_id = place_id
+
+    except Exception as e:
+        logger.error("msg.photo.rag_error", error=str(e))
+        status = "llm_error"
+        await update.message.reply_text(i18n.VISION_ERROR)  # type: ignore[union-attr]
+        session.add_message(MsgRole.USER, "[photo: llm_error]")
+
+    try:
+        store.upsert(session)
+    except Exception as e:
+        logger.warning("session.update.error", error=str(e))
 
     latency = int((time.monotonic() - start_time) * 1000)
-    log_request(logger, chat_id=chat_id, input_type="photo", status="not_implemented", latency_ms=latency)
+    log_request(logger, chat_id=chat_id, input_type="photo", status=status, latency_ms=latency)
 
 
 async def on_location(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -194,8 +256,14 @@ async def on_location(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             limit=3,
         )
 
-        text = format_nearby_list(places)
-        keyboard = make_nearby_keyboard(places) if places else None
+        if places:
+            text = format_nearby_list(places)
+            keyboard = make_nearby_keyboard(places)
+            status = "ok"
+        else:
+            text = i18n.GEO_OUT_OF_COVERAGE
+            keyboard = None
+            status = "no_kb"
 
         await update.message.reply_text(  # type: ignore[union-attr]
             text, parse_mode="HTML", reply_markup=keyboard
@@ -207,8 +275,6 @@ async def on_location(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         session.last_coords = {"lat": location.latitude, "lon": location.longitude}
         session.add_message(MsgRole.USER, f"[geo: {location.latitude}, {location.longitude}]")
         store.upsert(session)
-
-        status = "ok" if places else "no_kb"
     except Exception as e:
         logger.error("msg.location.error", error=str(e))
         await update.message.reply_text(i18n.GENERIC_ERROR)  # type: ignore[union-attr]

@@ -8,6 +8,21 @@
 
 ---
 
+### 2026-04-15 (ночь) | Блок H+I: pipeline.py + __main__.py 🛠️ Antigravity
+**Исполнитель:** Antigravity
+**Задачи:**
+- [x] `ingest/pipeline.py` — оркестратор: scrape → chunk → tag → embed → store
+  - `IngestPipeline`: lazy-init KBStore/GeminiClient через singleton
+  - `ingest_document()`: полный цикл для одного документа
+  - `run_wikipedia()`, `run_firecrawl()`, `run_text()` — высокоуровневые методы
+  - `IngestStats` — статистика прогона (sources, chunks, places, errors)
+  - `_title_to_place_id()` — fallback-транслитерация кириллицы
+- [x] `ingest/__main__.py` — CLI: `python -m ingest --source wikipedia|firecrawl|text`
+- [x] `tests/ingest/test_pipeline.py` — 19 тестов: транслитерация (5), маппинг тегов (4), stats (2), happy-path (2), edge cases (4), run_text (2)
+
+**Результат:** ingest pipeline готов к использованию. `python -m ingest --source wikipedia --limit 3` скачает, нарежет, протегирует, embedding и сохранит в KB.
+**Источники:** TECH_SPEC §7.1, ARCHITECTURE §5, все компоненты AG1–AG6.
+
 ### 2026-04-15 (ночь) | ingest/tagger.py + tagger.j2 🛠️ Antigravity
 **Исполнитель:** Antigravity
 **Задачи:**
