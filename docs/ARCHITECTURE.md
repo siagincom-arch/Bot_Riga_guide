@@ -325,7 +325,7 @@ Runtime (bot):
   python-telegram-bot ≥ 21       # transport
   langgraph                       # RAG orchestration
   langchain-core                  # just the types / runnable interface
-  google-generativeai             # Gemini client
+  google-genai                    # Gemini client (новый SDK, заменяет google-generativeai)
   chromadb                        # vector store
   sqlalchemy + sqlite             # session + place_coords (thin usage)
   pydantic, pydantic-settings     # config + models

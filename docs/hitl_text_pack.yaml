@@ -1,0 +1,109 @@
+# ============================================================
+# HITL Text Pack — Riga Guide Bot
+# M9.5 Smoke pack для run_hitl.py
+#
+# Покрывает: прямые запросы, транслитерация, вопросы,
+# неоднозначные топонимы, короткие названия, тематические теги.
+#
+# Поля:
+#   text            — текст запроса пользователя
+#   expected_place_id — ожидаемый slug из KB
+#   expected_tags   — список ожидаемых тегов (TECH_SPEC §7.1)
+#   note            — комментарий для отладки
+# ============================================================
+
+queries:
+  # --- Прямые точные названия (должны давать ok) ---
+  - text: "Домский собор"
+    expected_place_id: "dome-cathedral"
+    expected_tags: ["history", "architecture", "religion"]
+    note: "Главный запрос — золотой путь"
+
+  - text: "Дом Черноголовых"
+    expected_place_id: "house-of-the-blackheads"
+    expected_tags: ["history", "architecture", "guild"]
+    note: "Знаковое место Старой Риги"
+
+  - text: "Церковь Святого Петра"
+    expected_place_id: "st-peters-church"
+    expected_tags: ["history", "architecture", "religion"]
+    note: "Третье место в текущей KB"
+
+  - text: "Рижский замок"
+    expected_place_id: "rizhskij-zamok"
+    expected_tags: ["history", "architecture", "politics"]
+    note: "Президентская резиденция — пока не в KB"
+
+  - text: "Памятник Свободы"
+    expected_place_id: "pamyatnik-svobody"
+    expected_tags: ["history", "memorial", "symbol"]
+    note: "Главный символ Риги — пока не в KB"
+
+  - text: "Турайдский замок"
+    expected_place_id: "turajdskij-zamok"
+    expected_tags: ["history", "architecture", "legend"]
+    note: "Сигулда — за пределами Риги"
+
+  # --- Транслитерация и альтернативные написания ---
+  - text: "Domskij sobor"
+    expected_place_id: "dome-cathedral"
+    expected_tags: ["history", "architecture", "religion"]
+    note: "Транслитерация — rapidfuzz должен поймать"
+
+  - text: "Dome Cathedral Riga"
+    expected_place_id: "dome-cathedral"
+    expected_tags: ["history", "architecture", "religion"]
+    note: "Английское написание"
+
+  - text: "Черноголовые"
+    expected_place_id: "house-of-the-blackheads"
+    expected_tags: ["history", "architecture", "guild"]
+    note: "Сокращённое разговорное название"
+
+  - text: "Кошкин дом"
+    expected_place_id: "koshkin-dom"
+    expected_tags: ["history", "architecture", "legend"]
+    note: "Сокращённое название — пока не в KB"
+
+  # --- Вопросительные запросы ---
+  - text: "Что такое Три брата в Риге?"
+    expected_place_id: "tri-brata-riga"
+    expected_tags: ["history", "architecture"]
+    note: "Вопросительная форма — пока не в KB"
+
+  - text: "Расскажи о Рундальском дворце"
+    expected_place_id: "rundalskij-dvorets"
+    expected_tags: ["history", "architecture", "baroque", "legend"]
+    note: "Императивный запрос с посессивом — пока не в KB"
+
+  - text: "Кто построил Домский собор?"
+    expected_place_id: "dome-cathedral"
+    expected_tags: ["history", "architecture", "religion"]
+    note: "Фактологический вопрос — expects ok + history tag"
+
+  - text: "Когда была построена церковь Святого Петра?"
+    expected_place_id: "st-peters-church"
+    expected_tags: ["history", "architecture", "religion"]
+    note: "Хронологический вопрос"
+
+  # --- Тематические запросы без названия места ---
+  - text: "Расскажи легенду о средневековой Риге"
+    expected_place_id: null
+    expected_tags: ["legend", "history"]
+    note: "Тематический запрос без конкретного места — ожидаем candidates или best_match"
+
+  - text: "Где можно увидеть готическую архитектуру в Риге?"
+    expected_place_id: null
+    expected_tags: ["architecture", "history"]
+    note: "Архитектурный тематический запрос"
+
+  # --- Намеренно нечёткий запрос ---
+  - text: "старые ворота"
+    expected_place_id: "shvedskie-vorota-riga"
+    expected_tags: ["history", "architecture"]
+    note: "Неточный запрос — Шведские ворота — пока не в KB"
+
+  - text: "средневековый собор"
+    expected_place_id: "dome-cathedral"
+    expected_tags: ["history", "architecture", "religion"]
+    note: "Описательный запрос без названия — должен попасть на Домский"

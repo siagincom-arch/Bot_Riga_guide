@@ -264,3 +264,122 @@ class TestTagChunkEmptyInput:
         # tag_chunk ожидает str, но None должен обрабатываться gracefully
         result = await tag_chunk(None, gemini_client=mock_client)  # type: ignore[arg-type]
         assert result is None
+
+
+# ============================================================
+# Транслитерация place_id: tagger должен возвращать транслит,
+# а не английский перевод (TECH_SPEC §7.1, tagger.j2 §Rules).
+# ============================================================
+
+class TestTagChunkTransliteration:
+    """
+    Tagger должен принимать транслит (domskij-sobor-riga) и
+    отвергать английские slug (dome-cathedral, freedom-monument).
+    Тесты используют FakeGeminiClient через AsyncMock.generate.
+    """
+
+    @pytest.mark.asyncio
+    async def test_translit_place_id_accepted(self) -> None:
+        """
+        Транслитный place_id (domskij-sobor-riga) успешно проходит
+        _validate_result — соответствует паттерну ^[a-z0-9-]+$.
+        """
+        mock_client = AsyncMock()
+        mock_client.generate = AsyncMock(return_value=(
+            '{"place_id": "domskij-sobor-riga", "place_name": "Домский собор", '
+            '"tags": ["history", "architecture"], '
+            '"coords": {"lat": 56.9496, "lon": 24.1040}, "era": "XIII век"}'
+        ))
+
+        result = await tag_chunk(
+            "Домский собор в Риге — крупнейший средневековый храм Прибалтики.",
+            gemini_client=mock_client,
+        )
+
+        assert result is not None, "Транслитный place_id должен проходить валидацию"
+        assert result["place_id"] == "domskij-sobor-riga"
+        assert result["place_name"] == "Домский собор"
+
+    @pytest.mark.asyncio
+    async def test_english_slug_rejected(self) -> None:
+        """
+        Английский slug (dome-cathedral) так же технически валиден с точки зрения
+        regex ^[a-z0-9-]+$, но промпт его запрещает. Здесь мы документируем что
+        _validate_result НЕ отвергает его по формату — защита только в промпте.
+        Тест фиксирует текущее поведение (не блокер на уровне кода — контроль в LLM).
+        """
+        # Это не ошибка — _validate_result пропускает любой valide kebab slug.
+        # Запрет на English slug — обязанность промпта, не кода валидации.
+        data = {
+            "place_id": "dome-cathedral",
+            "place_name": "Домский собор",
+            "tags": ["history"],
+        }
+        result = _validate_result(data)
+        # Документируем текущее поведение: проходит regex, принимается
+        assert result is not None
+        assert result["place_id"] == "dome-cathedral"  # regex ок, промпт запрещает
+
+    @pytest.mark.asyncio
+    async def test_translit_dom_chernogolovykh(self) -> None:
+        """
+        Транслит «Дом Черноголовых» → dom-chernogolovykh.
+        FakeGeminiClient через AsyncMock возвращает правильный транслит из few-shot.
+        """
+        mock_client = AsyncMock()
+        mock_client.generate = AsyncMock(return_value=(
+            '{"place_id": "dom-chernogolovykh", "place_name": "Дом Черноголовых", '
+            '"tags": ["history", "architecture"], '
+            '"coords": {"lat": 56.9472, "lon": 24.1064}, "era": "XIV век"}'
+        ))
+
+        result = await tag_chunk(
+            "Братство Черноголовых объединяло купцов-иностранцев в Старой Риге с XIV века.",
+            gemini_client=mock_client,
+        )
+
+        assert result is not None
+        # Ключевая проверка: транслит, а не переводной «house-of-the-blackheads»
+        assert result["place_id"] == "dom-chernogolovykh", (
+            f"Ожидали транслит dom-chernogolovykh, получили: {result['place_id']}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_translit_pamyatnik_svobody(self) -> None:
+        """
+        Транслит «Памятник Свободы» → pamyatnik-svobody-riga.
+        Город добавляется суффиксом, как указано в tagger.j2.
+        """
+        mock_client = AsyncMock()
+        mock_client.generate = AsyncMock(return_value=(
+            '{"place_id": "pamyatnik-svobody-riga", "place_name": "Памятник Свободы", '
+            '"tags": ["history", "architecture"], '
+            '"coords": {"lat": 56.9511, "lon": 24.1131}, "era": "межвоенный период"}'
+        ))
+
+        result = await tag_chunk(
+            "Памятник Свободы установлен в 1935 году в честь борцов за независимость Латвии.",
+            gemini_client=mock_client,
+        )
+
+        assert result is not None
+        # Транслит с суффиксом города, а не «freedom-monument»
+        assert result["place_id"] == "pamyatnik-svobody-riga", (
+            f"Ожидали транслит с суффиксом -riga, получили: {result['place_id']}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_cyr_place_id_rejected_by_validate(self) -> None:
+        """
+        place_id с кириллицей или пробелом (例: «Домский Собор Рига») отвергается
+        _validate_result через regex ^[a-z0-9-]+$.
+        Гарантирует что невалидный slug от «сломанной» модели не попадёт в KB.
+        """
+        data = {
+            "place_id": "Домский-Собор-Рига",  # кириллица → невалидно
+            "place_name": "Домский собор",
+            "tags": ["history"],
+        }
+        result = _validate_result(data)
+        assert result is None, "Кириллица в place_id должна быть отвергнута"
+

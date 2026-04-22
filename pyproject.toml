@@ -10,7 +10,7 @@ dependencies = [
     "python-telegram-bot>=21.0",
     "langgraph>=0.2",
     "langchain-core>=0.3",
-    "google-generativeai>=0.8",
+    "google-genai>=1.0",
     "chromadb>=0.5",
     "sqlalchemy>=2.0",
     "pydantic>=2.0",
@@ -40,8 +40,8 @@ dev = [
 ]
 
 [build-system]
-requires = ["setuptools>=75.0"]
-build-backend = "setuptools.backends._legacy:_Backend"
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 where = ["."]
