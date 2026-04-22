@@ -56,13 +56,14 @@ class WikipediaScraper:
         self._lang = lang
         wikipedia.set_lang(lang)
 
-    def fetch(self, title: str, lang: str | None = None) -> dict[str, Any]:
+    def fetch(self, title: str, lang: str | None = None, _depth: int = 0) -> dict[str, Any]:
         """
         Скачивает статью из Wikipedia.
 
         Args:
             title: заголовок статьи.
             lang: язык (по умолчанию — из конструктора).
+            _depth: счётчик рекурсии (внутренний, не передавать).
 
         Returns:
             dict с ключами: title, text, url, summary.
@@ -74,12 +75,12 @@ class WikipediaScraper:
         logger.info("wikipedia.fetch", title=title, lang=self._lang)
 
         try:
-            page = wikipedia.page(title, auto_suggest=True)
+            page = wikipedia.page(title, auto_suggest=False)
             result = WikiResult(
                 title=page.title,
                 text=page.content,
                 url=page.url,
-                summary=wikipedia.summary(title, sentences=3),
+                summary=page.summary[:500],
             )
             logger.info("wikipedia.ok", title=result.title, chars=len(result.text))
             return {
@@ -90,10 +91,33 @@ class WikipediaScraper:
             }
 
         except wikipedia.exceptions.DisambiguationError as e:
-            # Неоднозначность — берём первый вариант
             logger.warning("wikipedia.disambig", title=title, options=e.options[:5])
-            if e.options:
-                return self.fetch(e.options[0], lang=lang)
+
+            # Защита от бесконечной рекурсии: максимум 1 уровень
+            if _depth >= 1:
+                logger.error("wikipedia.disambig_loop", title=title)
+                return {
+                    "title": title,
+                    "text": "",
+                    "url": "",
+                    "summary": "",
+                    "error": f"Disambiguation loop: {e.options[:3]}",
+                }
+
+            # Пробуем найти вариант, отличающийся от исходного заголовка
+            candidate = None
+            for opt in e.options:
+                if opt.lower() != title.lower():
+                    candidate = opt
+                    break
+
+            if candidate is None and e.options:
+                # Все варианты совпадают с запросом — пробуем первый с другим регистром
+                candidate = e.options[0] if e.options[0] != title else None
+
+            if candidate:
+                return self.fetch(candidate, lang=lang, _depth=_depth + 1)
+
             return {
                 "title": title,
                 "text": "",
