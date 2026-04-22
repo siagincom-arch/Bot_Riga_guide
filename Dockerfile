@@ -9,7 +9,8 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 
 COPY pyproject.toml ./
-RUN pip install --no-cache-dir ".[ingest]"
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir ".[ingest]"
 
 # === Stage 2: Application ===
 FROM python:3.12-slim AS app
