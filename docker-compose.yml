@@ -13,6 +13,9 @@ services:
     env_file: .env
     volumes:
       - ./data:/app/data
+      - ./logs:/app/logs
+      - ./docs:/app/docs:ro
+      - ./tests:/app/tests:ro
     profiles:
       - manual
     command: python -m ingest
