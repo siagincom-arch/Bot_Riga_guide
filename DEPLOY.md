@@ -208,15 +208,23 @@ docker compose run --rm ingest python -m ingest --source wikipedia
 
 ---
 
-## 7. Восстановление из бэкапа
+## 7. Бэкап и восстановление KB
+
+Для создания бэкапа базы данных `bot.db` и векторной базы `chroma` вручную:
+
+```bash
+bash scripts/backup_kb.sh
+```
+*(Создаст архив `backups/kb_backup_*.tar.gz` и удалит бэкапы старше 14 дней)*
+
+Восстановление из бэкапа:
 
 ```bash
 docker compose stop bot
-rm -rf data/chroma data/bot.db
-cp -r backups/2026-04-15/chroma data/
-cp    backups/2026-04-15/bot.db data/
+bash scripts/restore_kb.sh backups/kb_backup_YYYY-MM-DD_HHMMSS.tar.gz
 docker compose start bot
 ```
+*(Скрипт автоматически сделает пре-restore копию текущей базы в `data/.pre-restore-backup/`)*
 
 ---
 
