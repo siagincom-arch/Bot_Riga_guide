@@ -61,9 +61,9 @@ queries:
     note: "Сокращённое разговорное название"
 
   - text: "Кошкин дом"
-    expected_place_id: "koshkin-dom"
+    expected_place_id: "koshachij-dom-riga"
     expected_tags: ["history", "architecture", "legend"]
-    note: "Сокращённое название — пока не в KB"
+    note: "Сокращённое название. На ru.wiki статья называется 'Дом с чёрными котами', tagger назвал место 'Кошачий дом'."
 
   # --- Вопросительные запросы ---
   - text: "Что такое Три брата в Риге?"
