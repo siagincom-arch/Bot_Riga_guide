@@ -118,6 +118,11 @@ def setup_logging(log_path: str | Path = "./logs/bot.jsonl", log_level: str = "I
     stderr_handler.setLevel(numeric_level)
     root_logger.addHandler(stderr_handler)
 
+    # Тихим HTTP-библиотекам — только WARNING+: они палят URL с query-параметрами
+    # (раньше туда попадал GEMINI_API_KEY в старом SDK). Некритично, но гигиена.
+    for noisy in ("httpx", "httpcore", "urllib3", "google_genai", "google.genai"):
+        logging.getLogger(noisy).setLevel(logging.WARNING)
+
     # --- structlog конфигурация ---
     structlog.configure(
         processors=[
