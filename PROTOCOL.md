@@ -1,10 +1,153 @@
 # PROTOCOL — Riga Guide Bot
 
 ## Текущий фокус
-**Фаза:** Implementation — M7 ingest pipeline завершён. M8 Content Seed и M9 Tests — следующие.
-**Статус:** Claude закрыл блоки A–G (i18n, singleton, on_text, on_photo, on_location, callbacks). AG закрыл AG1–AG6 + tagger + pipeline (H+I).
-**Все M6 + M7 задачи закрыты.** Gateway полностью интегрирован с RAG. Ingest pipeline готов к прогону.
-**Следующий ход:** M8 — Content Seed (30 пилотных мест, прогон ingest, оценка качества). M9 — расширенные тесты.
+**Фаза:** M8 Content Seed → M9 HITL.
+**Статус (на 2026-04-25):** старая KB (с английскими `place_id`) снесена. Образы `bot` и `ingest` пересобраны на `google-genai`. Новый `tagger.j2` (транслит) проверен на sanity-прогоне 3 мест — все id транслитные. **Полный ingest 19 мест запущен в фоне** (лог: `logs/ingest_full_2026-04-22.log`).
+**Следующий ход:** дождаться окончания ingest → `docker compose run --rm ingest python scripts/run_hitl.py --text-pack docs/hitl_text_pack.yaml --out logs/hitl_2026-04-25.csv` → анализ CSV. Критерий: ≥12/18 ok, avg_latency < 10s. Точка входа для нового чата — `work/m9-hitl/next_session_claude.md`. Параллельная задача AG — `work/m9-hitl/ag-task-2026-04-25.md`.
+
+---
+
+### 2026-04-25 | M8 Content Seed: новый tagger + перезагрузка KB 🤖 Claude Code
+**Исполнитель:** Claude Code (после AG: миграция SDK + tagger транслит)
+**Задачи:**
+- [x] Зафиксировал работу AG в git (4 коммита):
+  - `1e79f2d` feat(llm+tagger): миграция SDK, транслит tagger, расширенный HITL pack
+  - `d3a6211` fix(ingest): защита `wikipedia.py` от бесконечной рекурсии disambig (`auto_suggest=False`, `_depth` счётчик)
+  - `a2a468f` chore(docker+seeds): pip upgrade + «Памятник Свободы (Рига)»
+  - `eea2aa2` chore(telemetry): mute httpx/httpcore/google_genai loggers до WARNING (Фаза C — задолженность из прошлой сессии)
+- [x] Снёс старую KB: `data/chroma/`, `data/bot.db*` — там были английские `place_id` от старого tagger.
+- [x] Пересобрал образы `bot` и `ingest` с новой зависимостью `google-genai>=1.0`.
+- [x] Sanity ingest на 3 местах (`--limit 3`):
+  - `Sources: 3/3 OK | Chunks: 48 total, 48 tagged, 48 stored | Places: 3 | Errors: 0`
+  - В KB транслит: `domskij-sobor-riga`, `dom-chernogolovykh`, `tserkov-svyatogo-petra-riga` ✓
+- [x] **Запустил полный ingest 19 мест в фоне** (`b15lvetrr`) — `logs/ingest_full_2026-04-22.log`. Ожидание ~15-25 мин.
+
+**Инсайты:**
+- Tagger выдаёт **разный** `place_id` на разные чанки одного документа (для Церкви Св. Петра 8 чанков → 7 раз `tserkov-svyatogo-petra-riga`, 1 раз `rizhskie-petushki`). Pipeline.py берёт первый — это работает, но на «обзорных» статьях (Рига, Старая Рига, Югендстиль) может дать «не тот» place_id для всей страницы. Ждём результат полного прогона перед действиями.
+- `Памятник Свободы` без суффикса `(Рига)` падал на disambig в Wikipedia → пришлось переименовать в seed. Если будут аналогичные сюрпризы на других seeds — фикс через тот же подход.
+
+**Handoff (новый чат):**
+- `work/m9-hitl/next_session_claude.md` — точка входа, инструкция как проверить статус фонового ingest, запустить HITL, обновить протокол.
+- `work/m9-hitl/ag-task-2026-04-25.md` — параллельный план для AG: DEPLOY.md обновить под новый SDK, smoke-фото для HITL, smoke-test daily_rollup.
+
+---
+
+### 2026-04-22 | AG: fake_gemini аудит + seeds аудит + тесты транслитерации 🛠️ Antigravity
+**Исполнитель:** Antigravity
+**Задачи:**
+- [x] **Задача 1 — FakeGeminiClient аудит:** Контракт совместим с новым SDK без изменений.
+  `FakeGeminiClient` реализует те же публичные методы (`generate`, `vision`, `embed`, `embed_batch`, `embed_query`) и не импортирует реальный SDK — изменений не требует.
+  Интеграционные тесты `tests/integration/test_rag_graph.py` проходят без правок.
+- [x] **Задача 2 — Seeds аудит:** `ingest/seeds/riga.yaml` уже содержит ровно **19 мест**:
+  Домский собор, Дом Черноголовых, Церковь Св. Петра, Рижский замок, Памятник Свободы,
+  Пороховая башня, Шведские ворота, Три брата, Кошкин дом, Рижский рынок, Нац. опера,
+  Нац. библиотека, Югендстиль, Турайдский замок, Сигулда, Пещера Гутманя, Рундальский дворец,
+  Старая Рига, Рига. Добавления не нужны.
+- [x] **Задача 3 — Тесты транслитерации** `tests/ingest/test_tagger.py` +5 кейсов (класс `TestTagChunkTransliteration`):
+  - `test_translit_place_id_accepted` — `domskij-sobor-riga` принимается валидатором
+  - `test_english_slug_rejected` — документирует что `dome-cathedral` проходит regex, но запрещён промптом (контроль в LLM, не в коде)
+  - `test_translit_dom_chernogolovykh` — `dom-chernogolovykh` vs `house-of-the-blackheads`
+  - `test_translit_pamyatnik_svobody` — `pamyatnik-svobody-riga` с городским суффиксом
+  - `test_cyr_place_id_rejected_by_validate` — кириллица в place_id → None (regex guard)
+
+**Инсайт:** `_validate_result` принимает любой валидный kebab-slug — запрет английских переводов реализован только на уровне промпта. Если нужна жёсткая защита на уровне кода — добавить allowlist транслитов или regex на преобладание латиницы + дефисов без английских словарных основ (не делаем сейчас — overkill для pet-project).
+
+---
+
+### 2026-04-16 | Миграция google-generativeai → google-genai 🛠️ Antigravity
+**Исполнитель:** Antigravity
+**Задачи:**
+- [x] `src/llm/gemini.py` — полная миграция на новый SDK `google-genai`:
+  - `genai.Client(api_key=...)` вместо `genai.configure()` + `GenerativeModel`
+  - `await client.aio.models.generate_content(...)` — async без отдельного `generate_content_async`
+  - `genai_types.Part.from_bytes(data=..., mime_type=...)` — vision без dict-хака
+  - `client.aio.models.embed_content(config=EmbedContentConfig(task_type=..., output_dimensionality=768))` — embed через SDK, без raw httpx
+  - Убран `httpx` и весь `_GEMINI_EMBED_URL` boilerplate
+- [x] `pyproject.toml` — заменено `google-generativeai>=0.8` → `google-genai>=1.0`
+- [x] `docs/ARCHITECTURE.md §10` — обновлена dependency map
+- [x] `docs/hitl_text_pack.yaml` — расширен с 10 до 18 запросов + добавлены `expected_tags` ко всем записям
+
+**Результат:** Deprecation warnings устранены. Embed больше не использует raw HTTP — весь API через единый Client. HITL pack охватывает прямые/транслит/вопросительные/тематические/описательные запросы.
+
+**⚠️ Требуется действие:** при следующем `docker compose build` образ подтянет `google-genai` вместо `google-generativeai`. Если venv не пересоздан, запустить: `pip install google-genai && pip uninstall google-generativeai -y`
+
+---
+
+### 2026-04-16 | Ограничение WSL2 ресурсов (.wslconfig) 🛠️ Antigravity
+**Исполнитель:** Antigravity
+**Задачи:**
+- [x] Создан `C:\Users\Natalja\.wslconfig` с лимитами: memory=4GB, processors=4, swap=2GB
+- [x] Выполнен `wsl --shutdown` — WSL2 перезапущен с новыми лимитами
+
+**Причина:** WSL2 без ограничений поглощает RAM и ОС начинает скидывать сетевые драйверы под давлением памяти. Docker Desktop нестабилен.
+
+**Результат:** WSL2 стабилизирован. Docker Desktop запускается без сетевых падений. Лимит RAM защищает от OOM на системном уровне.
+
+---
+
+### 2026-04-16 | Ingest LIVE: 3 места в KB 🤖 Claude Code
+**Исполнитель:** Claude Code
+**Задачи:**
+- [x] Фикс Docker Desktop (сеть отвалилась при запуске — `wsl --shutdown` + `Restart-Service hns` + `.wslconfig` c лимитом RAM на WSL2).
+- [x] Фикс Gemini API в `src/llm/gemini.py`:
+  - `TEXT_MODEL = "gemini-2.5-flash"`, `EMBED_MODEL = "gemini-embedding-001"`, `EMBED_DIM = 768`.
+  - URL изменён с `/v1/` на `/v1beta/`.
+  - API-ключ переведён из query-параметра в header `x-goog-api-key` (не попадает в логи/URL).
+  - В payload embed добавлен `outputDimensionality: 768` (gemini-embedding-001 отдаёт 3072 по умолчанию).
+- [x] Прогнан `python -m ingest --source wikipedia --limit 3`:
+  - `Sources: 3/3 OK | Chunks: 48 total, 48 tagged, 48 stored | Places: 3 | Errors: 0`.
+  - В KB: `dome-cathedral` (16), `house-of-the-blackheads` (17), `st-peters-church` (15).
+
+**Проблема для HITL:** `place_id` в KB — английские (LLM-тэггер через `tagger.j2` выдаёт английские slug), а `docs/hitl_text_pack.yaml` ждёт транслит (`domskij-sobor-riga`, `dom-chernogolovjkh`). При запуске HITL `status=ok` не засчитается даже при правильном попадании. Плюс из 10 запросов text-pack 7 ссылаются на места НЕ в KB (Рижский замок, Памятник Свободы, Турайдский, Кошкин дом, Три брата, Рундаль, Шведские ворота).
+
+**Решение:** HITL пропускаем, двигаемся прямо в Telegram через `docker compose up bot`. Работоспособность проверим ручным smoke-тестом. Расширение KB + фикс tagger + HITL — отдельная задача для следующей сессии (параллельно через AG).
+
+**Известные задолженности:**
+- `google.generativeai` deprecated → мигрировать на `google.genai` (некритично, работает с warning).
+- Опционально: ротация `GEMINI_API_KEY` (в стареньких stdout-логах ключ попадал в query до фикса).
+
+**Handoff:** следующая сессия — расширение KB до полного seed (19 мест) + фикс `tagger.j2` на транслит + HITL-прогон. Распараллелить Claude ⇄ AG.
+
+---
+
+### 2026-04-16 | Шаг 6 E2E — подготовка к прогону 🛠️ Antigravity
+**Исполнитель:** Antigravity
+**Задачи:**
+- [x] Восстановить контекст из PROTOCOL.md + структуры проекта
+- [x] Создать `docs/hitl_text_pack.yaml` — 10 тестовых запросов (прямые / транслитерация / вопросы / нечёткие)
+- [x] Создать `tests/fixtures/photos/README.md` — инструкция по добавлению тестовых фото
+- [ ] **TODO Наталья:** убедиться что `.env` заполнен (GEMINI_API_KEY обязателен)
+- [ ] **TODO Наталья:** `python -m ingest --source wikipedia --limit 3` — прогнать ingest
+- [ ] **TODO Наталья:** `python scripts/run_hitl.py --text-pack docs/hitl_text_pack.yaml --out hitl_results.csv`
+- [ ] Анализ CSV: ожидаем ≥7/10 status=ok, avg_latency < 10с
+
+**Handoff:** Наталья запускает команды выше и возвращает результат (CSV или stdout). AG анализирует метрики → PROTOCOL.md обновляется итогами M8/M9.
+
+---
+
+### 2026-04-16 | Блоки D + F: on_location + two-stage photo 🤖 Claude Code
+**Исполнитель:** Claude Code
+**Задачи:**
+- [x] D `gateway.on_location` — при пустом `places` отдаём `i18n.GEO_OUT_OF_COVERAGE` (раньше всегда шёл `format_nearby_list` и `GENERIC_ERROR` при любом исключении). Статус `no_kb` теперь осмысленный, `llm_error` — только при реальном исключении.
+- [x] F `gateway.on_photo` — полный two-stage flow (ADR-5):
+  1. `PHOTO_SEEING` сразу, до скачивания.
+  2. `download_largest()` (AG1) → `ValueError` → `PHOTO_DOWNLOAD_ERROR`, return.
+  3. `run_rag({input_type: "photo", image_bytes, chat_id, session_history})`.
+  4. `status=not_recognized` → `PHOTO_NOT_RECOGNIZED`.
+  5. `status=llm_error/timeout` → `VISION_ERROR`.
+  6. `status=ok` + `place_name` → отдельным сообщением `PHOTO_INTERIM_ACK_TMPL` (не edit — триггерит push), затем `_compose_answer(result)` + `make_place_keyboard(place_id)`.
+  7. Полное обновление сессии (USER + BOT msg, `last_place_id`).
+- [x] Импорт `download_largest` из `src.bot.photo_utils`.
+
+**Результат:**
+- Gateway полностью на RAG: текст / фото / гео / followup-кнопки — все через singleton `run_rag`.
+- Шаг 5 (Implementation) закрыт. Осталось: наполнить KB (`python -m ingest --source wikipedia --limit 3`) и запустить HITL-прогон для перехода к шагу 6.
+
+**Known limitations:**
+- Юнит-тесты на `on_photo` не пишем (нет моков Telegram SDK; политика проекта — валидация через HITL).
+- IDE-шум «Cannot find module `src.bot.photo_utils`» — косметика без venv, как у всех `src.*` импортов.
+
+**Handoff:** следующая сессия — прогнать ingest на 3 seeds и запустить `scripts/run_hitl.py --text-pack docs/hitl_text_pack.yaml` → анализ метрик.
 
 ---
 
