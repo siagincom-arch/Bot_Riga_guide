@@ -32,6 +32,33 @@
 
 ---
 
+### 2026-04-25 | AG: DEPLOY.md + smoke-фото + daily_rollup smoke 🛠️ Antigravity
+**Исполнитель:** Antigravity
+**Задачи:**
+- [x] **Задача 1 (P0) — DEPLOY.md обновлён под google-genai SDK:**
+  - Раздел §1: добавлено требование `google-genai>=1.0`, убрана ссылка на старый SDK, предупреждение что `genai.configure()` устарел
+  - §3.5 Ingest: команда исправлена на `python -m ingest --source wikipedia` (был неверный `--cities` флаг)
+  - §3.5: добавлен совет по быстрой sanity-проверке (`--limit 1`)
+  - §5 Smoke-чеклист: добавлен пункт `[SDK] ingest 1 место без ошибок`
+  - §6 Обновление KB: команда исправлена аналогично
+- [x] **Задача 2 (P1) — Smoke-фото для HITL:**
+  - Скачано 5 фото с Wikimedia Commons (CC-BY/CC-BY-SA/Public Domain)
+  - Все файлы сжаты до ≤ 500KB через PowerShell System.Drawing (JPEG 82-85%)
+  - `tests/fixtures/photos/README.md` обновлён: полная атрибуция (URL, автор, лицензия) по каждому файлу
+  - place_id исправлены на транслит: `dom-chernogolovykh` → верно, `pamyatnik-svobody-riga`, `rizhskij-zamok`
+- [x] **Задача 3 (P2) — Smoke-test daily_rollup:**
+  - Запущен `python scripts/daily_rollup.py` на тестовом JSONL (3 записи: 2 text, 1 photo, 2 chat_id)
+  - **Результат:** ✅ M2 `1/2` OK, M3 latency p50/p95 по input_type, M5 unique_chats — всё корректно
+  - Замечание: PowerShell пишет UTF-8-with-BOM → первая строка rejected. В боте Python пишет UTF-8 без BOM — проблемы не будет. Скрипт в порядке.
+
+**Коммит:** `228bd5a feat(hitl+deploy): smoke photos (5 Wikimedia CC) + DEPLOY.md google-genai update`
+
+**Инсайт:** Wikimedia Commons rate-limit (429) при 5 последовательных запросах без паузы — при обновлении фотофикстур делать паузу 3–5 сек между Invoke-WebRequest.
+
+---
+
+
+
 ### 2026-04-22 | AG: fake_gemini аудит + seeds аудит + тесты транслитерации 🛠️ Antigravity
 **Исполнитель:** Antigravity
 **Задачи:**
