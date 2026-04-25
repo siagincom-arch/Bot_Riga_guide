@@ -10,7 +10,7 @@
 | `01_dome_cathedral.jpg` | Домский собор (снаружи) | `domskij-sobor-riga` | Ryzhkov Sergey | CC BY-SA 4.0 | [Wikimedia](https://commons.wikimedia.org/wiki/File:Riga_Dome_Cathedral_at_twilight.jpg) |
 | `02_blackheads.jpg` | Дом Черноголовых | `dom-chernogolovykh` | Diliff | CC BY-SA 3.0 | [Wikimedia](https://commons.wikimedia.org/wiki/File:House_of_Blackheads_at_Dusk_1,_Riga,_Latvia_-_Diliff.jpg) |
 | `03_freedom_monument.jpg` | Памятник Свободы | `pamyatnik-svobody-riga` | Iikka Kivi / Nimmari | Public Domain | [Wikimedia](https://commons.wikimedia.org/wiki/File:Freedom_Monument_Riga.jpg) |
-| `04_riga_castle.jpg` | Рижский замок | `rizhskij-zamok` | Sandis Spolītis | CC BY-SA 4.0 | [Wikimedia](https://commons.wikimedia.org/wiki/File:Riga_castle.jpg) |
+| `04_riga_castle.jpg` | Рижский замок | `rizhskij-zamok-riga` | Sandis Spolītis | CC BY-SA 4.0 | [Wikimedia](https://commons.wikimedia.org/wiki/File:Riga_castle.jpg) |
 | `05_unknown.jpg` | Спасская башня Кремля (не Латвия) | `not_recognized` ожидаем | Vyacheslav Argenberg | CC BY 2.0 | [Wikimedia](https://commons.wikimedia.org/wiki/File:Kremlin_Spasskaya_Tower-1.jpg) |
 
 ## Критерии качества (M2 из USER_SPEC)

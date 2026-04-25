@@ -15,27 +15,27 @@
 queries:
   # --- Прямые точные названия (должны давать ok) ---
   - text: "Домский собор"
-    expected_place_id: "dome-cathedral"
+    expected_place_id: "domskij-sobor-riga"
     expected_tags: ["history", "architecture", "religion"]
     note: "Главный запрос — золотой путь"
 
   - text: "Дом Черноголовых"
-    expected_place_id: "house-of-the-blackheads"
+    expected_place_id: "dom-chernogolovykh"
     expected_tags: ["history", "architecture", "guild"]
     note: "Знаковое место Старой Риги"
 
   - text: "Церковь Святого Петра"
-    expected_place_id: "st-peters-church"
+    expected_place_id: "tserkov-svyatogo-petra-riga"
     expected_tags: ["history", "architecture", "religion"]
     note: "Третье место в текущей KB"
 
   - text: "Рижский замок"
-    expected_place_id: "rizhskij-zamok"
+    expected_place_id: "rizhskij-zamok-riga"
     expected_tags: ["history", "architecture", "politics"]
     note: "Президентская резиденция — пока не в KB"
 
   - text: "Памятник Свободы"
-    expected_place_id: "pamyatnik-svobody"
+    expected_place_id: "pamyatnik-svobody-riga"
     expected_tags: ["history", "memorial", "symbol"]
     note: "Главный символ Риги — пока не в KB"
 
@@ -46,17 +46,17 @@ queries:
 
   # --- Транслитерация и альтернативные написания ---
   - text: "Domskij sobor"
-    expected_place_id: "dome-cathedral"
+    expected_place_id: "domskij-sobor-riga"
     expected_tags: ["history", "architecture", "religion"]
     note: "Транслитерация — rapidfuzz должен поймать"
 
   - text: "Dome Cathedral Riga"
-    expected_place_id: "dome-cathedral"
+    expected_place_id: "domskij-sobor-riga"
     expected_tags: ["history", "architecture", "religion"]
     note: "Английское написание"
 
   - text: "Черноголовые"
-    expected_place_id: "house-of-the-blackheads"
+    expected_place_id: "dom-chernogolovykh"
     expected_tags: ["history", "architecture", "guild"]
     note: "Сокращённое разговорное название"
 
@@ -77,12 +77,12 @@ queries:
     note: "Императивный запрос с посессивом — пока не в KB"
 
   - text: "Кто построил Домский собор?"
-    expected_place_id: "dome-cathedral"
+    expected_place_id: "domskij-sobor-riga"
     expected_tags: ["history", "architecture", "religion"]
     note: "Фактологический вопрос — expects ok + history tag"
 
   - text: "Когда была построена церковь Святого Петра?"
-    expected_place_id: "st-peters-church"
+    expected_place_id: "tserkov-svyatogo-petra-riga"
     expected_tags: ["history", "architecture", "religion"]
     note: "Хронологический вопрос"
 
@@ -104,6 +104,6 @@ queries:
     note: "Неточный запрос — Шведские ворота — пока не в KB"
 
   - text: "средневековый собор"
-    expected_place_id: "dome-cathedral"
+    expected_place_id: "domskij-sobor-riga"
     expected_tags: ["history", "architecture", "religion"]
     note: "Описательный запрос без названия — должен попасть на Домский"
