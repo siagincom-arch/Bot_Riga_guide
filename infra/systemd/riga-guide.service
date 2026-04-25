@@ -1,0 +1,17 @@
+[Unit]
+Description=Riga Guide Telegram Bot
+After=docker.service network-online.target
+Requires=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/opt/riga-guide
+ExecStart=/usr/bin/docker compose up -d bot
+ExecStop=/usr/bin/docker compose down
+TimeoutStartSec=120
+Restart=on-failure
+RestartSec=15s
+
+[Install]
+WantedBy=multi-user.target

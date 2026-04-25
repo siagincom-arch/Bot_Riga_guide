@@ -217,6 +217,12 @@ def main() -> None:
         default=3,
         help="Trailing-окно для M5 в днях (по умолчанию 3)",
     )
+    parser.add_argument(
+        "--out",
+        type=Path,
+        default=None,
+        help="Путь для сохранения отчета (если не указан - stdout)",
+    )
     args = parser.parse_args()
 
     # Определяем дату
@@ -229,19 +235,26 @@ def main() -> None:
     all_records = load_records(args.log_path)
     if not all_records:
         print(f"⚠ Нет записей в {args.log_path}", file=sys.stderr)
-        print(format_report(target_date, compute_m2([]), {}, compute_m5([], args.days)))
-        return
+        report = format_report(target_date, compute_m2([]), {}, compute_m5([], args.days))
+    else:
+        # Фильтруем за целевую дату (M2, M3)
+        day_records = filter_by_date(all_records, target_date)
 
-    # Фильтруем за целевую дату (M2, M3)
-    day_records = filter_by_date(all_records, target_date)
+        # Считаем метрики
+        m2 = compute_m2(day_records)
+        m3 = compute_m3(day_records)
+        m5 = compute_m5(all_records, trailing_days=args.days)
 
-    # Считаем метрики
-    m2 = compute_m2(day_records)
-    m3 = compute_m3(day_records)
-    m5 = compute_m5(all_records, trailing_days=args.days)
+        report = format_report(target_date, m2, m3, m5)
 
-    # Печатаем отчёт
-    print(format_report(target_date, m2, m3, m5))
+    # Печатаем или сохраняем отчёт
+    if args.out:
+        args.out.parent.mkdir(parents=True, exist_ok=True)
+        with open(args.out, "w", encoding="utf-8") as f:
+            f.write(report)
+        print(f"✅ Отчёт сохранён в {args.out}", file=sys.stderr)
+    else:
+        print(report)
 
 
 if __name__ == "__main__":

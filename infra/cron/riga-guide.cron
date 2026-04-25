@@ -1,0 +1,3 @@
+# Riga Guide — automated tasks
+55 23 * * * cd /opt/riga-guide && /usr/bin/docker compose run --rm ingest python scripts/daily_rollup.py --out logs/rollup/$(date +\%Y-\%m-\%d).md >> logs/cron.log 2>&1
+0 4 * * * cd /opt/riga-guide && /bin/bash scripts/backup_kb.sh >> logs/cron.log 2>&1

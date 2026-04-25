@@ -128,18 +128,32 @@ docker logs -f bot --tail=50
 
 ---
 
-## 4. Настройка cron для backup
+## 4. Настройка автозапуска (systemd) и расписаний (cron)
+
+### Systemd (Автозапуск бота)
+
+Настроим автоматический старт и перезапуск бота:
 
 ```bash
-crontab -e
+sudo cp infra/systemd/riga-guide.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now riga-guide
+systemctl status riga-guide  # проверка
+journalctl -u riga-guide -f  # логи
 ```
 
-Добавить строку:
-```
-0 3 * * *  cd /opt/riga-guide && ./scripts/backup.sh >> logs/backup.log 2>&1
+### Cron (Бэкап и аналитика)
+
+Настроим генерацию отчетов и бэкапов:
+
+```bash
+sudo cp infra/cron/riga-guide.cron /etc/cron.d/riga-guide
+sudo chmod 644 /etc/cron.d/riga-guide
 ```
 
-Бэкапы хранятся в `backups/YYYY-MM-DD/`, удаляются автоматически через 7 дней.
+Что делает cron:
+- Ежедневно в 23:55 (локального серверного времени) собирает `daily_rollup` и сохраняет отчет в `logs/rollup/YYYY-MM-DD.md`
+- Ежедневно в 04:00 создает `.tar.gz` бэкап базы в `backups/` и удаляет бэкапы старше 14 дней
 
 ---
 
