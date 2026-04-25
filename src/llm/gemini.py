@@ -9,7 +9,7 @@ Retry-политику (M4.3) добавит Claude.
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import Optional, AsyncGenerator
 
 from google import genai
 from google.genai import types as genai_types
@@ -64,6 +64,28 @@ class GeminiClient:
         text = response.text or ""
         logger.debug("gemini.generate.ok", response_len=len(text))
         return text
+
+    async def generate_stream(self, prompt: str) -> AsyncGenerator[str, None]:
+        """
+        Генерация текста потоком (streaming).
+
+        Args:
+            prompt: полный промпт (уже отрендеренный из .j2 шаблона).
+
+        Yields:
+            Текстовые чанки по мере их готовности.
+        """
+        logger.debug("gemini.generate_stream", prompt_len=len(prompt))
+        try:
+            async for chunk in await self._client.aio.models.generate_content_stream(
+                model=self.TEXT_MODEL,
+                contents=prompt,
+            ):
+                if chunk.text:
+                    yield chunk.text
+        except Exception as e:
+            logger.error("gemini.generate_stream.error", error=repr(e))
+            raise
 
     async def vision(self, image_bytes: bytes, prompt: str) -> str:
         """

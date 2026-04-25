@@ -6,7 +6,7 @@ Requires=docker.service
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-WorkingDirectory=/opt/riga-guide
+WorkingDirectory=/root/Riga_guide
 ExecStart=/usr/bin/docker compose up -d bot
 ExecStop=/usr/bin/docker compose down
 TimeoutStartSec=120

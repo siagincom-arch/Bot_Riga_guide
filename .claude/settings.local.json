@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(docker compose *)",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)",
+      "Bash(tee logs/hitl_2026-04-25.stdout.log)",
+      "WebFetch(domain:ru.wikipedia.org)",
+      "Bash(tee logs/ingest_patch_2026-04-25.log)"
+    ]
+  }
+}

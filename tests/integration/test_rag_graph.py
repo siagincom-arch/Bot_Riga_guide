@@ -3,7 +3,7 @@
 
 M5.10 — Claude task.
 Проверяет сборку LangGraph: маршрутизацию по input_type, цепочку узлов,
-условные переходы grade→web_search и halluck→generate.
+условные переходы grade→web_search.
 
 KBStore здесь — lightweight фейк (_FakeKBStore), т.к. проверяем проводку
 графа, а не хранилище (это делает tests/integration/test_kb.py).
@@ -162,16 +162,9 @@ async def test_graph_text_query_returns_answer() -> None:
     kb = _FakeKBStore(_PLACES)
     gemini = FakeGeminiClient(
         vision_routing={},
-        # halluck_check получает тот же клиент; вернём pass=true
     )
-    # Подменим generate: первый вызов — ответ, второй (halluck) — JSON pass=true
-    call_count = {"n": 0}
-
     def fn(prompt: str) -> str:
         call_count["n"] += 1
-        if "фактчекер" in prompt.lower():
-            return json.dumps({"pass": True, "issues": []}, ensure_ascii=False)
-        # Иначе — основной ответ
         return (
             "Домский собор — крупнейший средневековый храм Прибалтики.\n"
             "\n"
@@ -206,7 +199,6 @@ async def test_graph_text_query_returns_answer() -> None:
     assert result["place_id"] == "dome-cathedral"
     assert result["summary"], "summary должен быть непустым"
     assert result["story"], "story должен быть непустым"
-    assert result.get("halluck_passed") is True
     assert result.get("status") == "ok"
 
 
@@ -216,8 +208,6 @@ async def test_graph_geo_query_uses_nearby() -> None:
     kb = _FakeKBStore(_PLACES)
 
     def fn(prompt: str) -> str:
-        if "факт-чекер" in prompt.lower() or "проверь" in prompt.lower():
-            return json.dumps({"pass": True, "issues": []}, ensure_ascii=False)
         return (
             "Дом Черноголовых — купеческий дом, восстановленный в 2000 году.\n"
             "\n"
@@ -266,8 +256,6 @@ async def test_graph_photo_flow_recognized() -> None:
     )
 
     def fn(prompt: str) -> str:
-        if "факт-чекер" in prompt.lower() or "проверь" in prompt.lower():
-            return json.dumps({"pass": True, "issues": []}, ensure_ascii=False)
         return (
             "Это Домский собор — визитка средневековой Риги.\n"
             "\n"

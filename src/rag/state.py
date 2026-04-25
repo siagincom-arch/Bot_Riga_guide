@@ -58,16 +58,16 @@ class RAGState(TypedDict, total=False):
     grade_sufficient: bool
     grade_score: float
 
+    # --- После check_cache ---
+    cache_hit: bool
+
+    # --- Стриминг ---
+    stream_callback: Any
+
     # --- После generate ---
     summary: str             # 2–3 предложения
     story: str               # 7–8 предложений
     raw_answer: str          # сырой ответ LLM до парсинга
-
-    # --- После halluck_check ---
-    halluck_passed: bool
-    halluck_issues: list[str]
-    halluck_retry_count: int
-    uncertain: bool          # true → ответ маркируется «возможно, неточно»
 
     # --- Сессия ---
     session_history: list[dict]  # [{role, text}, ...]

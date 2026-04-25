@@ -23,8 +23,8 @@ logger = get_logger("rag.nodes.text_search")
 
 
 # Порог косинусной дистанции Chroma: чем меньше, тем ближе.
-# 0.3 — строгое совпадение, 0.5 — приемлемое, > 0.5 — шум.
-_DISTANCE_STRICT = 0.30
+# 0.20 — строгое совпадение, 0.5 — приемлемое, > 0.5 — шум.
+_DISTANCE_STRICT = 0.20
 _DISTANCE_ACCEPTABLE = 0.50
 
 # Пороги rapidfuzz (0..100): 90 = почти точное, 75 = хорошее.
@@ -47,7 +47,7 @@ async def text_search(
     Находит место по тексту пользовательского запроса.
 
     Логика:
-    1. Пробуем Chroma semantic search. Если top-1 дистанция < 0.30 → берём его.
+    1. Пробуем Chroma semantic search. Если top-1 дистанция < 0.20 → берём его.
     2. Иначе пробуем rapidfuzz по name_ru из таблицы place_coords.
        Если score >= 90 → берём.
     3. Если semantic top-1 < 0.50 или fuzz >= 75 → возвращаем как

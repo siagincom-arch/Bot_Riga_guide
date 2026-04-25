@@ -38,6 +38,14 @@ CREATE TABLE IF NOT EXISTS place_coords (
 );
 """
 
+_CREATE_RESPONSE_CACHE = """
+CREATE TABLE IF NOT EXISTS response_cache (
+    query_hash TEXT PRIMARY KEY,
+    response_json TEXT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+"""
+
 # Радиус Земли в метрах (для Haversine)
 _EARTH_RADIUS_M = 6_371_000
 
@@ -94,6 +102,7 @@ class KBStore:
         self._sqlite_conn = sqlite3.connect(self._sqlite_path, check_same_thread=False)
         self._sqlite_conn.execute("PRAGMA journal_mode=WAL")
         self._sqlite_conn.execute(_CREATE_PLACE_COORDS)
+        self._sqlite_conn.execute(_CREATE_RESPONSE_CACHE)
         self._sqlite_conn.commit()
 
     def upsert(self, place: Place, passages: list[Passage], embeddings: list[list[float]]) -> int:
@@ -261,6 +270,40 @@ class KBStore:
         # Сортировка по расстоянию, обрезка до limit
         candidates.sort(key=lambda x: x["distance_m"])
         return candidates[:limit]
+
+    def get_coords(self, place_id: str) -> tuple[float, float] | None:
+        """Возвращает координаты места: (lat, lon) если найдено, иначе None."""
+        row = self._sqlite_conn.execute(
+            "SELECT lat, lon FROM place_coords WHERE place_id = ?",
+            (place_id,)
+        ).fetchone()
+        if row:
+            return row[0], row[1]
+        return None
+
+    def get_cache(self, query_hash: str) -> str | None:
+        """Получает закэшированный ответ."""
+        row = self._sqlite_conn.execute(
+            "SELECT response_json FROM response_cache WHERE query_hash = ?",
+            (query_hash,)
+        ).fetchone()
+        if row:
+            return row[0]
+        return None
+
+    def set_cache(self, query_hash: str, response_json: str) -> None:
+        """Сохраняет ответ в кэш."""
+        self._sqlite_conn.execute(
+            """
+            INSERT INTO response_cache (query_hash, response_json)
+            VALUES (?, ?)
+            ON CONFLICT(query_hash) DO UPDATE SET
+                response_json = excluded.response_json,
+                created_at = CURRENT_TIMESTAMP
+            """,
+            (query_hash, response_json)
+        )
+        self._sqlite_conn.commit()
 
     def delete_place(self, place_id: str) -> None:
         """Удаляет место из Chroma и SQLite."""

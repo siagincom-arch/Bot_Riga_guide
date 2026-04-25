@@ -39,7 +39,31 @@ async def retrieve(
 
     logger.info("retrieve.start", place_id=place_id, top_k=top_k)
 
-    results = kb_store.query_by_place(place_id=place_id, top_k=top_k)
+    session_history = state.get("session_history", [])
+    history_text = " ".join([m["text"] for m in session_history if m["role"] == "bot"]).lower()
+
+    # Извлекаем с запасом, чтобы было из чего фильтровать
+    results = kb_store.query_by_place(place_id=place_id, top_k=top_k * 3)
+
+    if history_text:
+        filtered = []
+        history_words = set(history_text.split())
+        for r in results:
+            text = r.get("text_ru", "").lower()
+            words = set(text.split())
+            if not words:
+                continue
+            overlap = len(words.intersection(history_words)) / len(words)
+            # Если меньше половины слов из чанка есть в недавней истории — считаем новым
+            if overlap < 0.5:
+                filtered.append(r)
+        
+        # Если после фильтрации совсем ничего не осталось (мало фактов), 
+        # откатываемся ко всем результатам
+        if len(filtered) > 0:
+            results = filtered
+
+    results = results[:top_k]
 
     logger.info("retrieve.done", place_id=place_id, passages_count=len(results))
 

@@ -22,10 +22,10 @@ from langgraph.graph import END, StateGraph
 
 from src.kb.store import KBStore
 from src.llm.tavily import TavilyClient
+from src.rag.nodes.cache import check_cache, update_cache
 from src.rag.nodes.generate import generate
 from src.rag.nodes.geo import geo_nearby
 from src.rag.nodes.grade import grade_context
-from src.rag.nodes.halluck_check import halluck_check
 from src.rag.nodes.retrieve import retrieve
 from src.rag.nodes.text_search import text_search
 from src.rag.nodes.vision import vision_identify
@@ -89,13 +89,13 @@ def _after_geo(state: dict[str, Any]) -> str:
 
 
 def _after_grade(state: dict[str, Any]) -> str:
-    """Если KB-контекста хватает — к generate, иначе web_search."""
-    return "generate" if state.get("grade_sufficient") else "web_search"
+    """Если KB-контекста хватает — к check_cache, иначе web_search."""
+    return "check_cache" if state.get("grade_sufficient") else "web_search"
 
 
-def _after_halluck(state: dict[str, Any]) -> str:
-    """Если проверка провалена и ещё есть попытки — обратно в generate."""
-    if state.get("halluck_passed", True):
+def _after_check_cache(state: dict[str, Any]) -> str:
+    """Если нашли в кэше — в END. Иначе — в generate."""
+    if state.get("cache_hit"):
         return "END"
     return "generate"
 
@@ -161,11 +161,9 @@ def build_graph(
         partial(grade_context, threshold=cfg.get("grade_threshold", 0.6)),
     )
     g.add_node("web_search", partial(web_search, tavily_client=tavily_client))
+    g.add_node("check_cache", partial(check_cache, kb_store=kb_store))
     g.add_node("generate", partial(generate, gemini_client=gemini_client))
-    g.add_node(
-        "halluck_check",
-        partial(halluck_check, gemini_client=gemini_client),
-    )
+    g.add_node("update_cache", partial(update_cache, kb_store=kb_store))
 
     # --- Рёбра ---
     g.set_entry_point("entry")
@@ -205,17 +203,19 @@ def build_graph(
     g.add_conditional_edges(
         "grade",
         _after_grade,
-        {"generate": "generate", "web_search": "web_search"},
+        {"check_cache": "check_cache", "web_search": "web_search"},
     )
 
-    g.add_edge("web_search", "generate")
-    g.add_edge("generate", "halluck_check")
-
+    g.add_edge("web_search", "check_cache")
+    
     g.add_conditional_edges(
-        "halluck_check",
-        _after_halluck,
+        "check_cache",
+        _after_check_cache,
         {"generate": "generate", "END": END},
     )
+
+    g.add_edge("generate", "update_cache")
+    g.add_edge("update_cache", END)
 
     return g.compile()
 

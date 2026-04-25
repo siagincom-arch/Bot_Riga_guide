@@ -11,7 +11,7 @@ TECH_SPEC §5.2: generate — {passages, place, session_history} → {summary, s
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, Protocol, AsyncGenerator
 
 from jinja2 import Environment, FileSystemLoader
 
@@ -23,6 +23,7 @@ logger = get_logger("rag.nodes.generate")
 
 class _GenerateCapable(Protocol):
     async def generate(self, prompt: str) -> str: ...
+    async def generate_stream(self, prompt: str) -> AsyncGenerator[str, None]: ...
 
 
 _PROMPTS_DIR = Path(__file__).resolve().parents[1] / "prompts"
@@ -123,7 +124,17 @@ async def generate(
     logger.info("generate.start", place_name=place_name, passages_count=len(passages))
 
     try:
-        raw = await with_generate_retry(lambda: gemini_client.generate(prompt))
+        stream_cb = state.get("stream_callback")
+        if stream_cb and hasattr(gemini_client, "generate_stream"):
+            # Stream mode
+            raw_chunks = []
+            async for chunk in gemini_client.generate_stream(prompt):
+                raw_chunks.append(chunk)
+                await stream_cb(chunk)
+            raw = "".join(raw_chunks)
+        else:
+            # Fallback to non-streaming
+            raw = await with_generate_retry(lambda: gemini_client.generate(prompt))
     except Exception as exc:
         logger.error("generate.llm_error", error=repr(exc))
         return {

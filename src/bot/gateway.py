@@ -29,6 +29,40 @@ from src.session.models import MsgRole, Session
 from src.session.store import SessionStore
 from src.telemetry.log import get_logger, log_request
 
+import asyncio
+from telegram import Message
+
+class StreamUpdater:
+    """Обертка для безопасного обновления сообщения Telegram с учетом rate-limits."""
+    def __init__(self, message: Message, update_interval: float = 1.5):
+        self.message = message
+        self.update_interval = update_interval
+        self.last_update_time = time.monotonic()
+        self.accumulated_text = ""
+        self._is_updating = False
+
+    async def on_chunk(self, chunk: str) -> None:
+        if not chunk:
+            return
+        
+        self.accumulated_text += chunk
+        now = time.monotonic()
+        if now - self.last_update_time >= self.update_interval and not self._is_updating:
+            self._is_updating = True
+            try:
+                # Ограничиваем длину превью, если оно слишком большое
+                # Не добавляем клавиатуру, так как это промежуточный статус
+                await self.message.edit_text(
+                    self.accumulated_text[:4000] + "...",
+                    parse_mode=None  # Отключаем HTML для безопасности на сыром пайплайне
+                )
+                self.last_update_time = time.monotonic()
+            except Exception as e:
+                # Telegram ругается, если текст не изменился (Message is not modified) – игнорируем
+                pass
+            finally:
+                self._is_updating = False
+
 
 def _session_history_for_rag(session: Session, limit: int = 4) -> list[dict]:
     """Возвращает последние N сообщений в формате, который ожидает generate.j2."""
@@ -41,8 +75,6 @@ def _compose_answer(result: dict) -> str:
     summary = result.get("summary") or ""
     story = result.get("story") or ""
     body = format_answer(summary, story)
-    if result.get("uncertain"):
-        return i18n.UNCERTAIN_MARKER + body
     return body
 
 logger = get_logger("bot.gateway")
@@ -144,7 +176,8 @@ async def on_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
 
     # Первое сообщение — «смотрю фото» (сразу, до скачивания).
-    await update.message.reply_text(i18n.PHOTO_SEEING, parse_mode="HTML")  # type: ignore[union-attr]
+    reply_msg = await update.message.reply_text(i18n.PHOTO_SEEING, parse_mode="HTML")  # type: ignore[union-attr]
+    updater = StreamUpdater(reply_msg)
 
     # Сессия
     store = get_session_store()
@@ -175,30 +208,23 @@ async def on_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             "image_bytes": image_bytes,
             "chat_id": chat_id,
             "session_history": _session_history_for_rag(session),
+            "stream_callback": updater.on_chunk,
         })
-        status = result.get("status") or "ok"
         place_id = result.get("place_id")
         place_name = result.get("place_name")
 
         if status == "not_recognized":
-            await update.message.reply_text(  # type: ignore[union-attr]
+            await reply_msg.edit_text(
                 i18n.PHOTO_NOT_RECOGNIZED, parse_mode="HTML"
             )
             session.add_message(MsgRole.USER, "[photo: not_recognized]")
         elif status in ("llm_error", "timeout"):
-            await update.message.reply_text(i18n.VISION_ERROR)  # type: ignore[union-attr]
+            await reply_msg.edit_text(i18n.VISION_ERROR)
             session.add_message(MsgRole.USER, "[photo: llm_error]")
         else:
-            # Interim ack — отдельным сообщением, чтобы триггерить push (ADR-5).
-            if place_name:
-                await update.message.reply_text(  # type: ignore[union-attr]
-                    i18n.PHOTO_INTERIM_ACK_TMPL.format(place_name=place_name),
-                    parse_mode="HTML",
-                )
-
             answer = _compose_answer(result)
             keyboard = make_place_keyboard(place_id) if place_id else None
-            await update.message.reply_text(  # type: ignore[union-attr]
+            await reply_msg.edit_text(
                 answer, parse_mode="HTML", reply_markup=keyboard
             )
 
@@ -210,7 +236,7 @@ async def on_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     except Exception as e:
         logger.error("msg.photo.rag_error", error=str(e))
         status = "llm_error"
-        await update.message.reply_text(i18n.VISION_ERROR)  # type: ignore[union-attr]
+        await reply_msg.edit_text(i18n.VISION_ERROR)
         session.add_message(MsgRole.USER, "[photo: llm_error]")
 
     try:
@@ -308,27 +334,34 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     status = "ok"
     place_id: str | None = None
 
+    reply_msg = await update.message.reply_text(
+        i18n.TEXT_SEARCHING_TMPL.format(query=text_query), 
+        parse_mode="HTML"
+    )
+    updater = StreamUpdater(reply_msg)
+
     try:
         result = await run_rag({
             "input_type": "text",
             "query": text_query,
             "chat_id": chat_id,
             "session_history": _session_history_for_rag(session),
+            "stream_callback": updater.on_chunk,
         })
         status = result.get("status") or "ok"
         place_id = result.get("place_id")
 
         if status == "not_recognized" or status == "no_kb":
-            await update.message.reply_text(  # type: ignore[union-attr]
+            await reply_msg.edit_text(
                 i18n.TEXT_NOT_FOUND_TMPL.format(query=text_query),
                 parse_mode="HTML",
             )
         elif status in ("llm_error", "timeout"):
-            await update.message.reply_text(i18n.LLM_ERROR)  # type: ignore[union-attr]
+            await reply_msg.edit_text(i18n.LLM_ERROR)
         else:
             answer = _compose_answer(result)
             keyboard = make_place_keyboard(place_id) if place_id else None
-            await update.message.reply_text(  # type: ignore[union-attr]
+            await reply_msg.edit_text(
                 answer, parse_mode="HTML", reply_markup=keyboard
             )
             # Сохраняем ответ в историю (урезанный до разумной длины)
@@ -339,7 +372,7 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     except Exception as e:
         logger.error("msg.text.rag_error", error=str(e))
         status = "llm_error"
-        await update.message.reply_text(i18n.LLM_ERROR)  # type: ignore[union-attr]
+        await reply_msg.edit_text(i18n.LLM_ERROR)
 
     # Сохраняем сессию
     try:
@@ -373,6 +406,15 @@ async def _run_followup(
     if extra_user_prompt:
         session.add_message(MsgRole.USER, extra_user_prompt)
 
+    # Отправляем сообщение для стриминга (TELL_LOADING_TMPL)
+    loading_tmpl = i18n.MORE_LEGEND_LOADING_TMPL if extra_user_prompt else i18n.TELL_LOADING_TMPL
+    # Мы не можем отобразить настоящее название без доп. запроса в БД, пока просто покажем заглушку со словом "место" или опустим.
+    # Шаблоны требуют {place_name}, но у нас только place_id. Заменим на универсальное "Интересное место".
+    reply_msg = await query.message.reply_text(
+        loading_tmpl.format(place_name="..."), parse_mode="HTML"
+    )
+    updater = StreamUpdater(reply_msg)
+
     status = "ok"
     try:
         result = await run_rag({
@@ -380,19 +422,20 @@ async def _run_followup(
             "place_id": place_id,
             "chat_id": chat_id,
             "session_history": _session_history_for_rag(session),
+            "stream_callback": updater.on_chunk,
         })
         status = result.get("status") or "ok"
 
         if status in ("llm_error", "timeout"):
-            await query.message.reply_text(i18n.LLM_ERROR)
+            await reply_msg.edit_text(i18n.LLM_ERROR)
         elif status == "no_kb":
-            await query.message.reply_text(
+            await reply_msg.edit_text(
                 i18n.TEXT_NOT_FOUND_TMPL.format(query=place_id), parse_mode="HTML"
             )
         else:
             answer = _compose_answer(result)
             keyboard = make_place_keyboard(place_id)
-            await query.message.reply_text(
+            await reply_msg.edit_text(
                 answer, parse_mode="HTML", reply_markup=keyboard
             )
             session.add_message(MsgRole.BOT, (result.get("summary") or "")[:500])
@@ -401,7 +444,7 @@ async def _run_followup(
     except Exception as e:
         logger.error("callback.followup.rag_error", error=str(e), place_id=place_id)
         status = "llm_error"
-        await query.message.reply_text(i18n.LLM_ERROR)
+        await reply_msg.edit_text(i18n.LLM_ERROR)
 
     try:
         store.upsert(session)
@@ -448,8 +491,39 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
     elif data.startswith("nearby:"):
         place_id = data.removeprefix("nearby:")
-        # Запрашиваем геолокацию у пользователя
-        await query.message.reply_text(i18n.NEARBY_REQUEST)  # type: ignore[union-attr]
+        
+        from src.config import settings
+        from src.kb.store import KBStore
+
+        if settings is None:
+            raise RuntimeError("Settings не загружены")
+
+        kb = KBStore(chroma_path=settings.CHROMA_PATH, sqlite_path=settings.SQLITE_PATH)
+        coords = kb.get_coords(place_id)
+        
+        if coords:
+            lat, lon = coords
+            places = kb.geo_nearby(
+                lat=lat,
+                lon=lon,
+                radius_m=settings.NEARBY_RADIUS_M,
+                # берём 4, на случай если мы исключим сам place_id
+                limit=4,
+            )
+            
+            # Убираем исходное место
+            places = [p for p in places if p["place_id"] != place_id][:3]
+
+            if places:
+                text = format_nearby_list(places)
+                keyboard = make_nearby_keyboard(places)
+                await query.message.reply_text(
+                    text, parse_mode="HTML", reply_markup=keyboard
+                )
+            else:
+                await query.message.reply_text(i18n.GEO_OUT_OF_COVERAGE, parse_mode="HTML")
+        else:
+            await query.message.reply_text(i18n.GENERIC_ERROR, parse_mode="HTML")
 
     else:
         logger.warning("callback.unknown", data=data)
