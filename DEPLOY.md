@@ -9,6 +9,9 @@
 - **ОС:** Linux (Ubuntu 22.04+ / Debian 12+)
 - **Docker:** ≥ 24.0
 - **Docker Compose:** v2 (плагин, не standalone)
+- **Python пакет LLM:** `google-genai>=1.0` (пакет `google-generativeai` устарел, не использовать)
+
+> ⚠️ **SDK:** в `pyproject.toml` зависимость `google-genai>=1.0`. Ключ передаётся через `genai.Client(api_key=...)`, а **не** через `genai.configure()` — это важно при ручной отладке вне Docker.
 
 ### Установка Docker (если нет)
 
@@ -91,10 +94,21 @@ docker compose build
 ### 3.5 Первичный ingest (наполнение KB)
 
 ```bash
-docker compose run --rm ingest --source wikipedia --cities riga,sigulda,rundale
+# Запускаем ingest через модуль (seeds берёт из ingest/seeds/riga.yaml)
+docker compose run --rm ingest python -m ingest --source wikipedia
 ```
 
-> ℹ️ Ingest может занять 5-10 минут. Следите за логами.
+> ℹ️ Ingest 19 мест занимает ~15-25 минут. Следите за логами:
+> ```bash
+> docker logs -f <container_id>
+> # или, если запущен как run --rm, лог прямо в stdout
+> ```
+
+> 💡 Для быстрой проверки SDK и KB до полного ingest запустите на 1 месте:
+> ```bash
+> docker compose run --rm ingest python -m ingest --source wikipedia --limit 1
+> # Ожидаемый результат: Sources: 1/1 OK | Chunks: ~15 | Errors: 0
+> ```
 
 ### 3.6 Запускаем бота
 
@@ -133,6 +147,10 @@ crontab -e
 
 ### Чек-лист
 
+- [ ] **[SDK]** Ingest на 1 месте завершился без ошибок (`Errors: 0`):
+  ```bash
+  docker compose run --rm ingest python -m ingest --source wikipedia --limit 1
+  ```
 - [ ] `/start` — бот отвечает приветствием на русском
 - [ ] Отправить фото здания в Риге — бот отвечает (хотя бы interim ack)
 - [ ] Отправить геолокацию рядом со Старой Ригой — бот показывает список мест
@@ -185,7 +203,7 @@ docker compose up -d bot
 
 ```bash
 # Бот не нужно останавливать — Chroma перечитывается при запросе
-docker compose run --rm ingest --source wikipedia --cities riga
+docker compose run --rm ingest python -m ingest --source wikipedia
 ```
 
 ---
