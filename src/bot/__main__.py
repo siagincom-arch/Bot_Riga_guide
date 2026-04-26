@@ -44,6 +44,8 @@ def main() -> None:
         on_photo,
         on_start,
         on_text,
+        on_voice,
+        on_fact,
         on_callback,
     )
 
@@ -57,12 +59,16 @@ def main() -> None:
     app.add_handler(CommandHandler("start", on_start))
     app.add_handler(CommandHandler("help", on_help))
     app.add_handler(CommandHandler("about", on_about))
+    app.add_handler(CommandHandler("fact", on_fact))
 
     # Фото
     app.add_handler(MessageHandler(filters.PHOTO, on_photo))
 
     # Геолокация
     app.add_handler(MessageHandler(filters.LOCATION, on_location))
+
+    # Голосовые сообщения (M12)
+    app.add_handler(MessageHandler(filters.VOICE, on_voice))
 
     # Текст (не команда)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))

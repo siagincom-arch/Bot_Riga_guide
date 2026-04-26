@@ -156,6 +156,42 @@ class KBStore:
 
         return len(passages)
 
+    def append_passages(self, passages: list[Passage], embeddings: list[list[float]]) -> int:
+        """
+        Добавляет новые passages в существующее место (без обновления координат SQLite).
+        Используется для динамического пополнения знаний (пользовательские факты, web search).
+
+        Args:
+            passages: список Passage.
+            embeddings: вектора эмбеддингов.
+
+        Returns:
+            Число добавленных чанков.
+        """
+        if len(passages) != len(embeddings):
+            raise ValueError(
+                f"Число passages ({len(passages)}) ≠ числу embeddings ({len(embeddings)})"
+            )
+
+        if not passages:
+            return 0
+
+        self._collection.upsert(
+            ids=[p.passage_id for p in passages],
+            documents=[p.text_ru for p in passages],
+            embeddings=embeddings,
+            metadatas=[
+                {
+                    "place_id": p.place_id,
+                    "topic": p.topic.value,
+                    "source": p.source,
+                }
+                for p in passages
+            ],
+        )
+
+        return len(passages)
+
     def semantic_search(
         self,
         query_embedding: list[float],

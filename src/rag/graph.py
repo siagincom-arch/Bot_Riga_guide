@@ -220,9 +220,41 @@ def build_graph(
     return g.compile()
 
 
+async def _curate_web_fact(state: dict[str, Any]) -> None:
+    place_id = state.get("place_id")
+    answer = state.get("answer")
+    if not place_id or not answer:
+        return
+        
+    from src.config import settings
+    from src.kb.store import KBStore
+    from src.kb.models import Passage, PassageTopic
+    
+    if settings is None:
+        return
+        
+    try:
+        kb_store = KBStore(chroma_path=settings.CHROMA_PATH, sqlite_path=settings.SQLITE_PATH)
+        passage = Passage(
+            place_id=place_id,
+            text_ru=answer,
+            topic=PassageTopic.FACT,
+            source="web_fact"
+        )
+        import asyncio
+        await asyncio.to_thread(kb_store.append_passages, place_id, [passage])
+        logger.info("web_search_loopback.saved", place_id=place_id)
+    except Exception as e:
+        logger.error("web_search_loopback.error", error=str(e))
+
 async def run_rag(graph: Any, initial_state: dict[str, Any]) -> dict[str, Any]:
     """Раннер графа. Гарантирует status='ok' в успехе."""
     result = await graph.ainvoke(initial_state)
     if not result.get("status"):
         result = {**result, "status": "ok"}
+        
+    if result.get("web_search_used"):
+        import asyncio
+        asyncio.create_task(_curate_web_fact(result))
+        
     return result

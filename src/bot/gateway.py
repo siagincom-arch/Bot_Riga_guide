@@ -11,7 +11,7 @@ from __future__ import annotations
 import time
 from typing import Any
 
-from telegram import Update
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, Message
 from telegram.ext import ContextTypes
 
 from src.bot import i18n_ru as i18n
@@ -310,6 +310,55 @@ async def on_location(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     log_request(logger, chat_id=chat_id, input_type="geo", status=status, latency_ms=latency)
 
 
+async def on_fact(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """
+    Обработка команды /fact. 
+    Отправляет пользовательский факт на ревью админу.
+    """
+    message = update.message
+    if not message or not message.text:
+        return
+        
+    chat_id = message.chat_id
+    text = message.text.removeprefix("/fact").strip()
+    
+    if not text:
+        await message.reply_text(i18n.FACT_EMPTY)
+        return
+        
+    if not _check_rate_limit(chat_id):
+        await message.reply_text(i18n.RATE_LIMIT_HIT)
+        return
+        
+    store = get_session_store()
+    session = store.get(chat_id)
+    if not session.last_place_id:
+        await message.reply_text(i18n.FACT_NO_PLACE)
+        return
+        
+    place_id = session.last_place_id
+    logger.info("on_fact", chat_id=chat_id, place_id=place_id, fact_len=len(text))
+    
+    from src.config import settings
+    if settings is not None and settings.ADMIN_CHAT_ID:
+        admin_text = f"📝 Предложен факт для `{place_id}`\nОт пользователя: {chat_id}\n\nТекст:\n{text}"
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("✅ Апрув", callback_data=f"fact_approve:{place_id}")],
+            [InlineKeyboardButton("❌ Отклонить", callback_data="fact_reject")]
+        ])
+        try:
+            await context.bot.send_message(
+                chat_id=settings.ADMIN_CHAT_ID,
+                text=admin_text,
+                reply_markup=keyboard,
+                parse_mode="Markdown"
+            )
+        except Exception as e:
+            logger.error("admin_notify_failed", error=str(e))
+            
+    await message.reply_text(i18n.FACT_THANKS)
+
+
 async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """
     Обработка текстового запроса — text_search → ответ.
@@ -318,6 +367,10 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """
     chat_id = update.effective_chat.id  # type: ignore[union-attr]
     text_query = update.message.text.strip()  # type: ignore[union-attr]
+    await _process_text_query(text_query, chat_id, update, context)
+
+async def _process_text_query(text_query: str, chat_id: int, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Общая логика обработки текста (для on_text и on_voice)."""
     start_time = time.monotonic()
 
     logger.info("msg.text", chat_id=chat_id, query=text_query[:100])
@@ -368,6 +421,10 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             session.add_message(MsgRole.BOT, (result.get("summary") or "")[:500])
             if place_id:
                 session.last_place_id = place_id
+                
+            # M12: Запускаем генерацию TTS асинхронно
+            if result.get("story"):
+                _trigger_tts(text=result["story"], chat_id=chat_id, context=context)
 
     except Exception as e:
         logger.error("msg.text.rag_error", error=str(e))
@@ -382,6 +439,88 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     latency = int((time.monotonic() - start_time) * 1000)
     log_request(logger, chat_id=chat_id, input_type="text", status=status, latency_ms=latency)
+
+def _trigger_tts(text: str, chat_id: int, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Асинхронно генерирует и отправляет голосовое через asyncio.create_task."""
+    async def worker():
+        try:
+            from src.llm.openai import openai_client
+            import os
+            from tempfile import NamedTemporaryFile
+            if not openai_client:
+                return
+            
+            with NamedTemporaryFile(delete=False, suffix=".ogg") as temp_file:
+                temp_path = temp_file.name
+                
+            await openai_client.text_to_speech(text, temp_path)
+            
+            with open(temp_path, "rb") as voice_file:
+                await context.bot.send_voice(chat_id=chat_id, voice=voice_file)
+                
+            os.remove(temp_path)
+        except Exception as e:
+            logger.error("tts.worker.error", error=str(e))
+            
+    asyncio.create_task(worker())
+
+
+async def on_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """
+    Обработка голосового сообщения — STT (Whisper) -> on_text логика.
+    """
+    import os
+    from tempfile import NamedTemporaryFile
+    from src.llm.openai import openai_client
+    
+    chat_id = update.effective_chat.id  # type: ignore[union-attr]
+    start_time = time.monotonic()
+    
+    voice = update.message.voice # type: ignore[union-attr]
+    
+    logger.info("msg.voice", chat_id=chat_id, duration=voice.duration)
+
+    if not _check_rate_limit(chat_id):
+        await update.message.reply_text(i18n.RATE_LIMIT_HIT)  # type: ignore[union-attr]
+        return
+        
+    if voice.duration > 60:
+        await update.message.reply_text(i18n.VOICE_TOO_LONG)
+        return
+
+    reply_msg = await update.message.reply_text(
+        i18n.VOICE_RECOGNIZING, 
+        parse_mode="HTML"
+    )
+
+    try:
+        # Скачиваем файл во временный файл
+        file = await context.bot.get_file(voice.file_id)
+        with NamedTemporaryFile(delete=False, suffix=".ogg") as temp_file:
+            temp_path = temp_file.name
+            
+        await file.download_to_drive(temp_path)
+        
+        # Распознаем текст
+        if not openai_client:
+            raise RuntimeError("OpenAI client not configured")
+            
+        text_query = await openai_client.speech_to_text(temp_path)
+        os.remove(temp_path)
+        
+        if not text_query:
+            await reply_msg.edit_text("Не удалось распознать текст. Попробуй еще раз.")
+            return
+
+        # Перенаправляем логику на текстовый обработчик
+        await reply_msg.delete()  # удаляем промежуточное "слушаю"
+        await _process_text_query(text_query, chat_id, update, context)
+
+    except Exception as e:
+        logger.error("msg.voice.error", error=str(e))
+        await reply_msg.edit_text(i18n.GENERIC_ERROR)
+        latency = int((time.monotonic() - start_time) * 1000)
+        log_request(logger, chat_id=chat_id, input_type="voice", status="error", latency_ms=latency)
 
 
 async def _run_followup(
@@ -510,20 +649,51 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
                 # берём 4, на случай если мы исключим сам place_id
                 limit=4,
             )
-            
-            # Убираем исходное место
-            places = [p for p in places if p["place_id"] != place_id][:3]
-
-            if places:
-                text = format_nearby_list(places)
-                keyboard = make_nearby_keyboard(places)
-                await query.message.reply_text(
-                    text, parse_mode="HTML", reply_markup=keyboard
-                )
+            filtered = [p for p in places if p.place_id != place_id][:3]
+            if filtered:
+                # Отправляем список (текстом с кнопками)
+                # Вызываем UI formatter
+                msg = format_nearby_list(filtered)
+                kb_markup = make_nearby_keyboard(filtered)
+                await query.message.reply_text(msg, reply_markup=kb_markup, parse_mode="HTML")
             else:
-                await query.message.reply_text(i18n.GEO_OUT_OF_COVERAGE, parse_mode="HTML")
+                await query.message.reply_text(i18n.NEARBY_NOT_FOUND)
         else:
-            await query.message.reply_text(i18n.GENERIC_ERROR, parse_mode="HTML")
+            await query.message.reply_text(i18n.NEARBY_NOT_FOUND)
+            
+    elif data.startswith("fact_approve:"):
+        place_id = data.removeprefix("fact_approve:")
+        admin_message = query.message
+        if admin_message and admin_message.text:
+            parts = admin_message.text.split("Текст:\n")
+            if len(parts) > 1:
+                fact_text = parts[1].strip()
+                
+                from src.config import settings
+                from src.kb.store import KBStore
+                from src.kb.models import Passage
+                import uuid
+                
+                if settings is not None:
+                    kb = KBStore(chroma_path=settings.CHROMA_PATH, sqlite_path=settings.SQLITE_PATH)
+                    passage = Passage(
+                        place_id=place_id,
+                        text_ru=fact_text,
+                        source="user_fact"
+                    )
+                    kb.append_passages(place_id, [passage])
+                    logger.info("user_fact_approved", place_id=place_id)
+                    await admin_message.edit_text(f"✅ Утверждено и добавлено в БД!\n\n{admin_message.text}")
+                    return
+
+        await query.answer("Не удалось извлечь текст факта", show_alert=True)
+        
+    elif data == "fact_reject":
+        admin_message = query.message
+        if admin_message:
+            await admin_message.edit_text(f"❌ Отклонено\n\n{admin_message.text}")
+
+
 
     else:
         logger.warning("callback.unknown", data=data)

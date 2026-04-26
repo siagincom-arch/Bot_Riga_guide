@@ -33,6 +33,10 @@ class Settings(BaseSettings):
     TELEGRAM_BOT_TOKEN: SecretStr
     GEMINI_API_KEY: SecretStr
     TAVILY_API_KEY: SecretStr
+    OPENAI_API_KEY: SecretStr
+    
+    # --- Административные ---
+    ADMIN_CHAT_ID: int = Field(default=0)
 
     # --- Пути к данным ---
     CHROMA_PATH: Path = Field(default=Path("./data/chroma"))
@@ -97,6 +101,8 @@ def create_test_settings(**overrides: object) -> Settings:
         "TELEGRAM_BOT_TOKEN": "test-token-123",
         "GEMINI_API_KEY": "test-gemini-key",
         "TAVILY_API_KEY": "test-tavily-key",
+        "OPENAI_API_KEY": "test-openai-key",
+        "ADMIN_CHAT_ID": 12345678,
         "CHROMA_PATH": "./data/chroma",
         "SQLITE_PATH": "./data/bot.db",
         "LOG_PATH": "./logs/bot.jsonl",

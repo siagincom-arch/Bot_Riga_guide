@@ -19,6 +19,7 @@ dependencies = [
     "jinja2>=3.1",
     "rapidfuzz>=3.0",
     "structlog>=24.0",
+    "openai>=1.0",
 ]
 
 # === Ingest (дополнительные) ===
