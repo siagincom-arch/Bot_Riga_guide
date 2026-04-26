@@ -672,7 +672,7 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
                 from src.config import settings
                 from src.kb.store import KBStore
                 from src.kb.models import Passage
-                from src.llm.gemini import gemini_client
+                from src.rag.singleton import get_gemini_client
                 import uuid
                 
                 if settings is not None:
@@ -684,6 +684,7 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
                             source="user_fact"
                         )
                         passage.passage_id = passage.compute_passage_id()
+                        gemini_client = get_gemini_client()
                         embedding = await gemini_client.embed(fact_text)
                         
                         import asyncio
