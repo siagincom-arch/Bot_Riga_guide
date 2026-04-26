@@ -23,9 +23,9 @@ logger = get_logger("rag.nodes.text_search")
 
 
 # Порог косинусной дистанции Chroma: чем меньше, тем ближе.
-# 0.20 — строгое совпадение, 0.5 — приемлемое, > 0.5 — шум.
+# 0.20 — строгое совпадение, 0.35 — приемлемое, > 0.35 — шум.
 _DISTANCE_STRICT = 0.20
-_DISTANCE_ACCEPTABLE = 0.50
+_DISTANCE_ACCEPTABLE = 0.35
 
 # Пороги rapidfuzz (0..100): 90 = почти точное, 75 = хорошее.
 _FUZZ_STRONG = 90
@@ -50,14 +50,13 @@ async def text_search(
     1. Пробуем Chroma semantic search. Если top-1 дистанция < 0.20 → берём его.
     2. Иначе пробуем rapidfuzz по name_ru из таблицы place_coords.
        Если score >= 90 → берём.
-    3. Если semantic top-1 < 0.50 или fuzz >= 75 → возвращаем как
+    3. Если semantic top-1 < 0.35 или fuzz >= 75 → возвращаем как
        основной вариант, но если оба топ-2 близки по качеству — candidates
        для clarifier.
-    4. Иначе — status = "not_recognized".
+    4. Иначе — fallback на dynamic place_id (для Web Search Loopback).
 
     Returns:
-        state с place_id, place_name, candidates (если неоднозначно),
-        или status="not_recognized".
+        state с place_id (основной или сгенерированный), place_name, candidates.
     """
     query = (state.get("query") or "").strip()
     if not query:
@@ -82,8 +81,16 @@ async def text_search(
     # --- 3. Решаем, какой вариант выбрать ---
     chosen = _choose_match(semantic_hit, fuzz_hit)
     if chosen is None:
-        logger.info("text_search.not_found", query=query[:100])
-        return {**state, "status": "not_recognized"}
+        import uuid
+        place_id = f"dyn_{uuid.uuid4().hex[:8]}"
+        place_name = query[:100]
+        logger.info("text_search.dynamic_place", query=place_name, place_id=place_id)
+        return {
+            **state,
+            "place_id": place_id,
+            "place_name": place_name,
+            "candidates": [],
+        }
 
     place_id = chosen["place_id"]
     place_name = chosen.get("name_ru") or ""
