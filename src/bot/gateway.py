@@ -672,19 +672,29 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
                 from src.config import settings
                 from src.kb.store import KBStore
                 from src.kb.models import Passage
+                from src.llm.gemini import gemini_client
                 import uuid
                 
                 if settings is not None:
-                    kb = KBStore(chroma_path=settings.CHROMA_PATH, sqlite_path=settings.SQLITE_PATH)
-                    passage = Passage(
-                        place_id=place_id,
-                        text_ru=fact_text,
-                        source="user_fact"
-                    )
-                    kb.append_passages(place_id, [passage])
-                    logger.info("user_fact_approved", place_id=place_id)
-                    await admin_message.edit_text(f"✅ Утверждено и добавлено в БД!\n\n{admin_message.text}")
-                    return
+                    try:
+                        kb = KBStore(chroma_path=settings.CHROMA_PATH, sqlite_path=settings.SQLITE_PATH)
+                        passage = Passage(
+                            place_id=place_id,
+                            text_ru=fact_text,
+                            source="user_fact"
+                        )
+                        passage.passage_id = passage.compute_passage_id()
+                        embedding = await gemini_client.embed(fact_text)
+                        
+                        import asyncio
+                        await asyncio.to_thread(kb.append_passages, [passage], [embedding])
+                        logger.info("user_fact_approved", place_id=place_id)
+                        await admin_message.edit_text(f"✅ Утверждено и добавлено в БД!\n\n{admin_message.text}")
+                        return
+                    except Exception as e:
+                        logger.error("user_fact_approve_error", error=str(e))
+                        await query.answer("Ошибка при сохранении", show_alert=True)
+                        return
 
         await query.answer("Не удалось извлечь текст факта", show_alert=True)
         
