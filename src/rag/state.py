@@ -46,6 +46,7 @@ class RAGState(TypedDict, total=False):
     place_id: Optional[str]
     place_name: Optional[str]
     candidates: list[dict]   # для clarifier (несколько близких совпадений)
+    query_embedding: list[float]  # эмбеддинг запроса для retrieve
 
     # --- После geo ---
     nearby_places: list[dict]

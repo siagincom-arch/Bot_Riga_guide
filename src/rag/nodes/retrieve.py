@@ -18,34 +18,63 @@ logger = get_logger("rag.nodes.retrieve")
 async def retrieve(
     state: dict[str, Any],
     kb_store: KBStore,
+    gemini_client: Any = None,
     top_k: int = 6,
 ) -> dict[str, Any]:
     """
     Извлекает passages из KB для идентифицированного места.
+    Если есть query и gemini_client, делает семантический поиск,
+    иначе откатывается на query_by_place.
 
     Args:
-        state: состояние графа, должно содержать place_id.
+        state: состояние графа, должно содержать place_id или query.
         kb_store: экземпляр KBStore.
+        gemini_client: клиент для получения эмбеддингов.
         top_k: число чанков для извлечения.
 
     Returns:
         Обновлённый state с полем passages: list[dict].
     """
     place_id = state.get("place_id")
+    query = (state.get("query") or "").strip()
 
-    if not place_id:
-        logger.warning("retrieve.no_place_id")
+    if not place_id and not query:
+        logger.warning("retrieve.no_place_id_and_query")
         return {**state, "passages": []}
 
-    logger.info("retrieve.start", place_id=place_id, top_k=top_k)
+    logger.info("retrieve.start", place_id=place_id, has_query=bool(query), top_k=top_k)
+
+    results = []
+    
+    # 1. Пробуем семантический поиск, если есть текст запроса
+    if query and gemini_client:
+        try:
+            # Получаем эмбеддинг, если его нет в state
+            embedding = state.get("query_embedding")
+            if not embedding:
+                embedding = await gemini_client.embed_query(query)
+            
+            # Если place_id = dyn_*, значит точное место не найдено, ищем по всей базе
+            filter_place_id = place_id
+            if place_id and place_id.startswith("dyn_"):
+                filter_place_id = None
+                
+            results = kb_store.semantic_search(
+                query_embedding=embedding,
+                top_k=top_k * 3,
+                place_id=filter_place_id
+            )
+        except Exception as e:
+            logger.error("retrieve.semantic_search_failed", error=repr(e))
+
+    # 2. Фолбэк на запрос всех фактов для места, если нет результатов семантического поиска
+    if not results and place_id and not place_id.startswith("dyn_"):
+        results = kb_store.query_by_place(place_id=place_id, top_k=top_k * 3)
 
     session_history = state.get("session_history", [])
     history_text = " ".join([m["text"] for m in session_history if m["role"] == "bot"]).lower()
 
-    # Извлекаем с запасом, чтобы было из чего фильтровать
-    results = kb_store.query_by_place(place_id=place_id, top_k=top_k * 3)
-
-    if history_text:
+    if history_text and results:
         filtered = []
         history_words = set(history_text.split())
         for r in results:

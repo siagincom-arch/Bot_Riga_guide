@@ -154,7 +154,7 @@ def build_graph(
     g.add_node("geo_select", _geo_select)
     g.add_node(
         "retrieve",
-        partial(retrieve, kb_store=kb_store, top_k=cfg.get("top_k", 6)),
+        partial(retrieve, kb_store=kb_store, gemini_client=gemini_client, top_k=cfg.get("top_k", 6)),
     )
     g.add_node(
         "grade",

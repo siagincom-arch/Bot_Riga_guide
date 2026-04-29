@@ -90,6 +90,7 @@ async def text_search(
             "place_id": place_id,
             "place_name": place_name,
             "candidates": [],
+            "query_embedding": embedding if 'embedding' in locals() else None,
         }
 
     place_id = chosen["place_id"]
@@ -118,6 +119,7 @@ async def text_search(
         "place_id": place_id,
         "place_name": place_name,
         "candidates": candidates,
+        "query_embedding": embedding if 'embedding' in locals() else None,
     }
 
 
