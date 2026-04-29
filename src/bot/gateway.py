@@ -332,7 +332,7 @@ async def on_fact(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         
     store = get_session_store()
     session = store.get(chat_id)
-    if not session.last_place_id:
+    if not session or not session.last_place_id:
         await message.reply_text(i18n.FACT_NO_PLACE)
         return
         
@@ -607,8 +607,6 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     if query is None:
         return
 
-    await query.answer()  # Убираем «часики» в Telegram
-
     data = query.data or ""
     chat_id = query.message.chat.id  # type: ignore[union-attr]
 
@@ -619,16 +617,19 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         return
 
     if data.startswith("tell:"):
+        await query.answer()
         place_id = data.removeprefix("tell:")
         await _run_followup(query, chat_id, place_id, extra_user_prompt=None)
 
     elif data.startswith("more_legend:"):
+        await query.answer()
         place_id = data.removeprefix("more_legend:")
         await _run_followup(
             query, chat_id, place_id, extra_user_prompt=i18n.MORE_LEGEND_PROMPT
         )
 
     elif data.startswith("nearby:"):
+        await query.answer()
         place_id = data.removeprefix("nearby:")
         
         from src.config import settings
@@ -665,19 +666,17 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         place_id = data.removeprefix("fact_approve:")
         admin_message = query.message
         if admin_message and admin_message.text:
-            parts = admin_message.text.split("Текст:\n")
-            if len(parts) > 1:
-                fact_text = parts[1].strip()
+            if "Текст:" in admin_message.text:
+                fact_text = admin_message.text.split("Текст:", 1)[1].strip()
                 
                 from src.config import settings
-                from src.kb.store import KBStore
                 from src.kb.models import Passage
-                from src.rag.singleton import get_gemini_client
+                from src.rag.singleton import get_gemini_client, get_kb_store
                 import uuid
                 
                 if settings is not None:
                     try:
-                        kb = KBStore(chroma_path=settings.CHROMA_PATH, sqlite_path=settings.SQLITE_PATH)
+                        kb = get_kb_store()
                         passage = Passage(
                             place_id=place_id,
                             text_ru=fact_text,
@@ -687,21 +686,22 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
                         gemini_client = get_gemini_client()
                         embedding = await gemini_client.embed(fact_text)
                         
-                        import asyncio
-                        await asyncio.to_thread(kb.append_passages, [passage], [embedding])
+                        kb.append_passages([passage], [embedding])
                         logger.info("user_fact_approved", place_id=place_id)
+                        await query.answer("✅ Факт успешно сохранен в базу знаний!", show_alert=True)
                         await admin_message.edit_text(f"✅ Утверждено и добавлено в БД!\n\n{admin_message.text}")
                         return
                     except Exception as e:
-                        logger.error("user_fact_approve_error", error=str(e))
-                        await query.answer("Ошибка при сохранении", show_alert=True)
+                        logger.error("user_fact_approve_error", error=repr(e))
+                        await query.answer("❌ Ошибка при сохранении", show_alert=True)
                         return
 
-        await query.answer("Не удалось извлечь текст факта", show_alert=True)
+        await query.answer("❌ Не удалось извлечь текст факта", show_alert=True)
         
     elif data == "fact_reject":
         admin_message = query.message
         if admin_message:
+            await query.answer("❌ Факт отклонен", show_alert=True)
             await admin_message.edit_text(f"❌ Отклонено\n\n{admin_message.text}")
 
 

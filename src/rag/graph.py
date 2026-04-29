@@ -234,8 +234,8 @@ async def _curate_web_fact(state: dict[str, Any]) -> None:
         return
         
     try:
-        from src.rag.singleton import get_gemini_client
-        kb_store = KBStore(chroma_path=settings.CHROMA_PATH, sqlite_path=settings.SQLITE_PATH)
+        from src.rag.singleton import get_gemini_client, get_kb_store
+        kb_store = get_kb_store()
         passage = Passage(
             place_id=place_id,
             text_ru=answer,
@@ -246,11 +246,10 @@ async def _curate_web_fact(state: dict[str, Any]) -> None:
         gemini_client = get_gemini_client()
         embedding = await gemini_client.embed(answer)
         
-        import asyncio
-        await asyncio.to_thread(kb_store.append_passages, [passage], [embedding])
+        kb_store.append_passages([passage], [embedding])
         logger.info("web_search_loopback.saved", place_id=place_id)
     except Exception as e:
-        logger.error("web_search_loopback.error", error=str(e))
+        logger.error("web_search_loopback.error", error=repr(e))
 
 async def run_rag(graph: Any, initial_state: dict[str, Any]) -> dict[str, Any]:
     """Раннер графа. Гарантирует status='ok' в успехе."""
