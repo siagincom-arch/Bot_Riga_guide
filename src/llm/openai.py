@@ -71,7 +71,12 @@ class OpenAIClient:
                 input=text,
                 response_format="opus"
             )
-            response.stream_to_file(output_path)
+            
+            import inspect
+            res = response.stream_to_file(output_path)
+            if inspect.iscoroutine(res):
+                await res
+                
             logger.info("openai.tts.success", output_path=str(output_path), text_len=len(text))
         except Exception as e:
             logger.error("openai.tts.failed", error=str(e), text_len=len(text))

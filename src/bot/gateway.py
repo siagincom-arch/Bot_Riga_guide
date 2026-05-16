@@ -443,6 +443,7 @@ async def _process_text_query(text_query: str, chat_id: int, update: Update, con
 def _trigger_tts(text: str, chat_id: int, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Асинхронно генерирует и отправляет голосовое через asyncio.create_task."""
     async def worker():
+        temp_path = None
         try:
             from src.llm.openai import openai_client
             import os
@@ -450,17 +451,25 @@ def _trigger_tts(text: str, chat_id: int, context: ContextTypes.DEFAULT_TYPE) ->
             if not openai_client:
                 return
             
+            # ВАЖНО: обрезка текста, чтобы не превысить лимит OpenAI в 4096 символов
+            safe_text = text[:4000]
+            
             with NamedTemporaryFile(delete=False, suffix=".ogg") as temp_file:
                 temp_path = temp_file.name
                 
-            await openai_client.text_to_speech(text, temp_path)
+            await openai_client.text_to_speech(safe_text, temp_path)
             
             with open(temp_path, "rb") as voice_file:
                 await context.bot.send_voice(chat_id=chat_id, voice=voice_file)
                 
-            os.remove(temp_path)
         except Exception as e:
-            logger.error("tts.worker.error", error=str(e))
+            logger.error("tts.worker.error", error=repr(e))
+        finally:
+            if temp_path and os.path.exists(temp_path):
+                try:
+                    os.remove(temp_path)
+                except Exception as e:
+                    logger.error("tts.worker.cleanup_error", error=repr(e))
             
     asyncio.create_task(worker())
 
@@ -669,6 +678,10 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             if "Текст:" in admin_message.text:
                 fact_text = admin_message.text.split("Текст:", 1)[1].strip()
                 
+                import re
+                chat_id_match = re.search(r"От пользователя: (\d+)", admin_message.text)
+                user_chat_id = int(chat_id_match.group(1)) if chat_id_match else None
+                
                 from src.config import settings
                 from src.kb.models import Passage
                 from src.rag.singleton import get_gemini_client, get_kb_store
@@ -690,6 +703,51 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
                         logger.info("user_fact_approved", place_id=place_id)
                         await query.answer("✅ Факт успешно сохранен в базу знаний!", show_alert=True)
                         await admin_message.edit_text(f"✅ Утверждено и добавлено в БД!\n\n{admin_message.text}")
+                        
+                        # Отвечаем пользователю по новой информации
+                        if user_chat_id:
+                            try:
+                                notify_msg = await context.bot.send_message(
+                                    chat_id=user_chat_id,
+                                    text="✅ Ваш факт утвержден и добавлен в базу знаний! Генерирую ответ по новой информации...",
+                                    parse_mode="HTML"
+                                )
+                                
+                                store = get_session_store()
+                                session = store.get(user_chat_id) or Session(chat_id=user_chat_id)
+                                session.add_message(MsgRole.USER, f"Расскажи подробнее про этот факт: {fact_text}")
+                                
+                                updater = StreamUpdater(notify_msg)
+                                
+                                result = await run_rag({
+                                    "input_type": "text",
+                                    "query": f"Новый факт добавлен в базу: {fact_text}. Расскажи об этом подробнее.",
+                                    "chat_id": user_chat_id,
+                                    "session_history": _session_history_for_rag(session),
+                                    "stream_callback": updater.on_chunk,
+                                })
+                                
+                                status = result.get("status") or "ok"
+                                place_id_new = result.get("place_id") or place_id
+                                
+                                if status in ("llm_error", "timeout"):
+                                    await notify_msg.edit_text("✅ Ваш факт добавлен, но сейчас я не могу сгенерировать историю. Попробуйте спросить позже.")
+                                else:
+                                    answer = _compose_answer(result)
+                                    keyboard = make_place_keyboard(place_id_new)
+                                    await notify_msg.edit_text(
+                                        answer, parse_mode="HTML", reply_markup=keyboard
+                                    )
+                                    session.add_message(MsgRole.BOT, (result.get("summary") or "")[:500])
+                                    session.last_place_id = place_id_new
+                                    
+                                    if result.get("story"):
+                                        _trigger_tts(text=result["story"], chat_id=user_chat_id, context=context)
+                                        
+                                store.upsert(session)
+                            except Exception as e:
+                                logger.error("notify_user_fact_approved_failed", error=str(e))
+                                
                         return
                     except Exception as e:
                         logger.error("user_fact_approve_error", error=repr(e))
