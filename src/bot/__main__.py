@@ -47,6 +47,7 @@ def main() -> None:
         on_voice,
         on_fact,
         on_callback,
+        on_menu,
     )
 
     # Создаём Application
@@ -57,6 +58,7 @@ def main() -> None:
 
     # Команды
     app.add_handler(CommandHandler("start", on_start))
+    app.add_handler(CommandHandler("menu", on_menu))
     app.add_handler(CommandHandler("help", on_help))
     app.add_handler(CommandHandler("about", on_about))
     app.add_handler(CommandHandler("fact", on_fact))

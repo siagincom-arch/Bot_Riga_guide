@@ -23,6 +23,8 @@ from src.bot.ui import (
     format_nearby_list,
     make_nearby_keyboard,
     make_place_keyboard,
+    make_menu_keyboard,
+    make_examples_keyboard,
 )
 from src.rag.singleton import run_rag
 from src.session.models import MsgRole, Session
@@ -125,6 +127,44 @@ async def on_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     store.delete(chat_id)
 
     await update.message.reply_text(i18n.START_GREETING, parse_mode="HTML")  # type: ignore[union-attr]
+
+    # Отправляем второе сообщение с меню
+    await update.message.reply_text(
+        i18n.MENU_TITLE,
+        reply_markup=make_menu_keyboard(),
+        parse_mode="HTML"
+    )
+    await update.message.reply_text(
+        i18n.MENU_EXAMPLES_TITLE,
+        reply_markup=make_examples_keyboard(),
+        parse_mode="HTML"
+    )
+
+    latency = int((time.monotonic() - start_time) * 1000)
+    log_request(logger, chat_id=chat_id, input_type="command", status="ok", latency_ms=latency)
+
+
+async def on_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """
+    /menu — показать меню.
+
+    TECH_SPEC §4.1, M14.1.
+    """
+    chat_id = update.effective_chat.id  # type: ignore[union-attr]
+    start_time = time.monotonic()
+    
+    logger.info("cmd.menu", chat_id=chat_id)
+
+    await update.message.reply_text(
+        i18n.MENU_TITLE,
+        reply_markup=make_menu_keyboard(),
+        parse_mode="HTML"
+    )
+    await update.message.reply_text(
+        i18n.MENU_EXAMPLES_TITLE,
+        reply_markup=make_examples_keyboard(),
+        parse_mode="HTML"
+    )
 
     latency = int((time.monotonic() - start_time) * 1000)
     log_request(logger, chat_id=chat_id, input_type="command", status="ok", latency_ms=latency)
@@ -670,6 +710,23 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
                 await query.message.reply_text(i18n.NEARBY_NOT_FOUND)
         else:
             await query.message.reply_text(i18n.NEARBY_NOT_FOUND)
+            
+    elif data.startswith("menu:"):
+        await query.answer()
+        category = data.removeprefix("menu:")
+        
+        if category == "events":
+            await query.message.reply_text(i18n.EVENTS_COMING_SOON_TMPL, parse_mode="HTML")
+        elif category == "food":
+            await query.message.reply_text("Раздел 'Где поесть' в разработке...", parse_mode="HTML")
+        elif category == "route":
+            await query.message.reply_text("Раздел 'Маршруты' в разработке...", parse_mode="HTML")
+        elif category == "transport":
+            await query.message.reply_text("Раздел 'Транспорт' в разработке...", parse_mode="HTML")
+        elif category == "lifehack":
+            await query.message.reply_text("Раздел 'Лайфхаки' в разработке...", parse_mode="HTML")
+        elif category == "top":
+            await query.message.reply_text("Раздел 'Топ мест' в разработке...", parse_mode="HTML")
             
     elif data.startswith("fact_approve:"):
         place_id = data.removeprefix("fact_approve:")

@@ -85,3 +85,31 @@ def format_nearby_list(places: list[dict]) -> str:
         lines.append(f"{i}. {p['name_ru']} — {p['distance_m']:.0f} м")
     lines.append("\nНажмите на место, чтобы узнать его историю 👇")
     return "\n".join(lines)
+
+
+def make_menu_keyboard() -> InlineKeyboardMarkup:
+    """6 кнопок меню в раскладке 2×3."""
+    from src.bot import i18n_ru as i18n
+    rows = []
+    buttons = i18n.MENU_BUTTONS
+    for i in range(0, len(buttons), 2):
+        row = [
+            InlineKeyboardButton(text=label, callback_data=cb)
+            for label, cb in buttons[i:i+2]
+        ]
+        rows.append(row)
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def make_examples_keyboard() -> InlineKeyboardMarkup:
+    """3 кнопки-примера с switch_inline_query_current_chat —
+    при тапе подставляют текст в поле ввода (не отправляют)."""
+    from src.bot import i18n_ru as i18n
+    rows = [
+        [InlineKeyboardButton(
+            text=example,
+            switch_inline_query_current_chat=example,
+        )]
+        for example in i18n.MENU_EXAMPLES
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=rows)
