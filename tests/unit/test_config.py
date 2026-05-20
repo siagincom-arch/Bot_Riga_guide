@@ -126,26 +126,44 @@ class TestSecretsMasking:
 class TestRequiredFields:
     """Без токенов Settings не должен создаваться (если не тестовая фабрика)."""
 
-    def test_missing_telegram_token_raises(self) -> None:
+    def test_missing_telegram_token_raises(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Без TELEGRAM_BOT_TOKEN Settings не создаётся."""
+        monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+        monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+        monkeypatch.delenv("TAVILY_API_KEY", raising=False)
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
         with pytest.raises(Exception):
             Settings(
+                _env_file=None,
                 GEMINI_API_KEY="key",  # type: ignore[arg-type]
                 TAVILY_API_KEY="key",  # type: ignore[arg-type]
+                OPENAI_API_KEY="key",  # type: ignore[arg-type]
             )
 
-    def test_missing_gemini_key_raises(self) -> None:
+    def test_missing_gemini_key_raises(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Без GEMINI_API_KEY Settings не создаётся."""
+        monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+        monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+        monkeypatch.delenv("TAVILY_API_KEY", raising=False)
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
         with pytest.raises(Exception):
             Settings(
+                _env_file=None,
                 TELEGRAM_BOT_TOKEN="tok",  # type: ignore[arg-type]
                 TAVILY_API_KEY="key",  # type: ignore[arg-type]
+                OPENAI_API_KEY="key",  # type: ignore[arg-type]
             )
 
-    def test_missing_tavily_key_raises(self) -> None:
+    def test_missing_tavily_key_raises(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Без TAVILY_API_KEY Settings не создаётся."""
+        monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+        monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+        monkeypatch.delenv("TAVILY_API_KEY", raising=False)
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
         with pytest.raises(Exception):
             Settings(
+                _env_file=None,
                 TELEGRAM_BOT_TOKEN="tok",  # type: ignore[arg-type]
                 GEMINI_API_KEY="key",  # type: ignore[arg-type]
+                OPENAI_API_KEY="key",  # type: ignore[arg-type]
             )

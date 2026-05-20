@@ -17,6 +17,11 @@ FROM python:3.12-slim AS app
 
 WORKDIR /app
 
+# Устанавливаем системные зависимости: ffmpeg для конвертации аудио
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends ffmpeg && \
+    rm -rf /var/lib/apt/lists/*
+
 # Копируем установленные пакеты из stage 1
 COPY --from=deps /usr/local/lib/python3.12/site-packages /usr/local/lib/python3.12/site-packages
 COPY --from=deps /usr/local/bin /usr/local/bin

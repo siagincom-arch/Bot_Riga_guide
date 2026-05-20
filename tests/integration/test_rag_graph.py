@@ -116,18 +116,23 @@ class _FakeKBStore:
             [(p["place_id"], p["name_ru"], p["lat"], p["lon"]) for p in places],
         )
         self._sqlite_conn.commit()
+        self._cache = {}
 
     def semantic_search(
-        self, *, query_embedding: list[float], top_k: int = 5
+        self,
+        query_embedding: list[float],
+        top_k: int = 6,
+        place_id: str | None = None,
     ) -> list[dict[str, Any]]:
         # Простая заглушка: возвращаем первое место с дистанцией 0.2 (проходит strict).
         # Этого достаточно, чтобы text_search вернул место без опоры на fuzz.
-        first = self._places[0]
+        pid = place_id if place_id else self._places[0]["place_id"]
+        place = self._by_id.get(pid, self._places[0])
         return [
             {
-                "place_id": first["place_id"],
-                "name_ru": first["name_ru"],
-                "text_ru": first["passages"][0]["text_ru"],
+                "place_id": place["place_id"],
+                "name_ru": place["name_ru"],
+                "text_ru": place["passages"][0]["text_ru"],
                 "distance": 0.2,
             }
         ]
@@ -152,6 +157,12 @@ class _FakeKBStore:
             }
         ]
 
+    def get_cache(self, query_hash: str) -> str | None:
+        return self._cache.get(query_hash)
+
+    def set_cache(self, query_hash: str, response_json: str) -> None:
+        self._cache[query_hash] = response_json
+
 
 # === Тесты ===
 
@@ -163,6 +174,7 @@ async def test_graph_text_query_returns_answer() -> None:
     gemini = FakeGeminiClient(
         vision_routing={},
     )
+    call_count = {"n": 0}
     def fn(prompt: str) -> str:
         call_count["n"] += 1
         return (

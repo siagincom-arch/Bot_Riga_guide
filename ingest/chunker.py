@@ -134,15 +134,16 @@ class Chunker:
         for chunk in chunks:
             if not buffer:
                 buffer = chunk
-            elif len(buffer) + len(chunk) + 1 <= max_chars:
+            # Склеиваем, только если хотя бы один из них слишком мал, и они вместе помещаются в лимит
+            elif (len(buffer) < min_chars or len(chunk) < min_chars) and (len(buffer) + len(chunk) + 1 <= max_chars):
                 buffer = f"{buffer}\n{chunk}"
             else:
                 merged.append(buffer)
                 buffer = chunk
 
         if buffer:
-            # Если последний чанк маленький — склеиваем с предыдущим
-            if merged and len(buffer) < min_chars and len(merged[-1]) + len(buffer) + 1 <= max_chars:
+            # Если последний чанк или предыдущий чанк маленький — склеиваем их (если помещаются)
+            if merged and (len(buffer) < min_chars or len(merged[-1]) < min_chars) and len(merged[-1]) + len(buffer) + 1 <= max_chars:
                 merged[-1] = f"{merged[-1]}\n{buffer}"
             else:
                 merged.append(buffer)

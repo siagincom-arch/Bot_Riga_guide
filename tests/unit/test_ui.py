@@ -15,6 +15,8 @@ from src.bot.ui import (
     format_nearby_list,
     make_nearby_keyboard,
     make_place_keyboard,
+    make_menu_keyboard,
+    make_examples_keyboard,
 )
 
 
@@ -223,3 +225,59 @@ class TestMakeNearbyKeyboard:
         """Пустой список → пустая клавиатура."""
         kb = make_nearby_keyboard([])
         assert len(kb.inline_keyboard) == 0
+
+# ============================================================
+# make_menu_keyboard
+# ============================================================
+
+class TestMakeMenuKeyboard:
+    def test_returns_inline_keyboard(self):
+        from telegram import InlineKeyboardMarkup
+        kb = make_menu_keyboard()
+        assert isinstance(kb, InlineKeyboardMarkup)
+
+    def test_has_three_rows_with_two_buttons(self):
+        """6 категорий = 3 ряда по 2 кнопки."""
+        kb = make_menu_keyboard()
+        rows = kb.inline_keyboard
+        assert len(rows) == 3, f"Expected 3 rows, got {len(rows)}"
+        for i in range(3):
+            assert len(rows[i]) == 2, f"Row {i} should have 2 buttons"
+
+    def test_menu_callback_data(self):
+        """Категории имеют правильный callback_data."""
+        kb = make_menu_keyboard()
+        callbacks = []
+        for row in kb.inline_keyboard:
+            for btn in row:
+                callbacks.append(btn.callback_data)
+        expected = {"menu:food", "menu:route", "menu:transport",
+                    "menu:events", "menu:lifehack", "menu:top"}
+        assert set(callbacks) == expected
+
+
+# ============================================================
+# make_examples_keyboard
+# ============================================================
+
+class TestMakeExamplesKeyboard:
+    def test_returns_inline_keyboard(self):
+        from telegram import InlineKeyboardMarkup
+        kb = make_examples_keyboard()
+        assert isinstance(kb, InlineKeyboardMarkup)
+
+    def test_has_three_rows_with_one_button(self):
+        """3 примера = 3 ряда по 1 кнопке."""
+        kb = make_examples_keyboard()
+        rows = kb.inline_keyboard
+        assert len(rows) == 3, f"Expected 3 rows, got {len(rows)}"
+        for i in range(3):
+            assert len(rows[i]) == 1, f"Row {i} should have 1 button"
+
+    def test_examples_use_switch_inline_query(self):
+        """Примеры используют switch_inline_query_current_chat, не callback_data."""
+        kb = make_examples_keyboard()
+        for row in kb.inline_keyboard:
+            btn = row[0]
+            assert btn.switch_inline_query_current_chat is not None
+            assert btn.callback_data is None
