@@ -451,7 +451,7 @@ def _trigger_tts(text: str, chat_id: int, context: ContextTypes.DEFAULT_TYPE) ->
             if not openai_client:
                 return
             
-            # ВАЖНО: обрезка текста, чтобы не превысить лимит OpenAI в 4096 символов
+            # Обрезка текста, чтобы не превысить лимит OpenAI в 4096 символов
             safe_text = text[:4000]
             
             with NamedTemporaryFile(delete=False, suffix=".ogg") as temp_file:
@@ -459,15 +459,35 @@ def _trigger_tts(text: str, chat_id: int, context: ContextTypes.DEFAULT_TYPE) ->
                 
             await openai_client.text_to_speech(safe_text, temp_path)
             
+            # Проверяем что файл не пустой перед отправкой
+            file_size = os.path.getsize(temp_path)
+            if file_size < 100:
+                logger.warning(
+                    "tts.worker.file_too_small",
+                    file_size=file_size,
+                    chat_id=chat_id,
+                )
+                return  # Не отправляем пустой/повреждённый файл
+            
+            # Отправляем с таймаутом, чтобы не зависать
             with open(temp_path, "rb") as voice_file:
-                await context.bot.send_voice(chat_id=chat_id, voice=voice_file)
+                await asyncio.wait_for(
+                    context.bot.send_voice(chat_id=chat_id, voice=voice_file),
+                    timeout=30.0,
+                )
+            
+            logger.info("tts.worker.sent", chat_id=chat_id, file_size=file_size)
                 
+        except asyncio.TimeoutError:
+            logger.error("tts.worker.send_timeout", chat_id=chat_id)
         except Exception as e:
-            logger.error("tts.worker.error", error=repr(e))
+            logger.error("tts.worker.error", error=repr(e), chat_id=chat_id)
         finally:
-            if temp_path and os.path.exists(temp_path):
+            if temp_path:
                 try:
-                    os.remove(temp_path)
+                    import os
+                    if os.path.exists(temp_path):
+                        os.remove(temp_path)
                 except Exception as e:
                     logger.error("tts.worker.cleanup_error", error=repr(e))
             

@@ -55,32 +55,73 @@ class OpenAIClient:
             logger.error("openai.stt.failed", error=str(e), path=str(audio_path))
             raise RuntimeError(f"Ошибка распознавания речи: {e}")
 
-    async def text_to_speech(self, text: str, output_path: str | Path) -> None:
+    async def text_to_speech(self, text: str, output_path: str | Path, max_retries: int = 1) -> None:
         """
         Синтез речи (TTS) и сохранение в файл.
 
         Args:
             text: Текст для озвучивания (рекомендуется не более 4096 символов).
-            output_path: Куда сохранить сгенерированный OGG Opus или MP3.
+            output_path: Куда сохранить сгенерированный OGG Opus.
+            max_retries: Количество повторных попыток при сетевых ошибках.
         """
-        try:
-            # Для Telegram Voice (send_voice) лучше всего подходит формат opus (.ogg)
-            response = await self._client.audio.speech.create(
-                model="tts-1",
-                voice="alloy", # можно поменять на onyx, echo, fable, nova, shimmer
-                input=text,
-                response_format="opus"
-            )
-            
-            import inspect
-            res = response.stream_to_file(output_path)
-            if inspect.iscoroutine(res):
-                await res
-                
-            logger.info("openai.tts.success", output_path=str(output_path), text_len=len(text))
-        except Exception as e:
-            logger.error("openai.tts.failed", error=str(e), text_len=len(text))
-            raise RuntimeError(f"Ошибка генерации голоса: {e}")
+        last_error: Exception | None = None
+
+        for attempt in range(1 + max_retries):
+            try:
+                response = await self._client.audio.speech.create(
+                    model="tts-1",
+                    voice="alloy",
+                    input=text,
+                    response_format="opus"
+                )
+
+                # Читаем всё содержимое в память — надёжнее чем stream_to_file,
+                # который в разных версиях SDK может быть sync или async
+                audio_bytes = response.read()
+
+                if not audio_bytes or len(audio_bytes) < 100:
+                    logger.warning(
+                        "openai.tts.empty_response",
+                        attempt=attempt + 1,
+                        bytes_received=len(audio_bytes) if audio_bytes else 0,
+                    )
+                    last_error = RuntimeError("TTS вернул пустой или слишком короткий ответ")
+                    if attempt < max_retries:
+                        await asyncio.sleep(1.5)
+                        continue
+                    raise last_error
+
+                # Записываем байты в файл вручную
+                Path(output_path).write_bytes(audio_bytes)
+
+                file_size = Path(output_path).stat().st_size
+                logger.info(
+                    "openai.tts.success",
+                    output_path=str(output_path),
+                    text_len=len(text),
+                    file_size=file_size,
+                    attempt=attempt + 1,
+                )
+                return  # Успех — выходим
+
+            except RuntimeError:
+                raise  # Пробрасываем наши собственные ошибки
+            except Exception as e:
+                last_error = e
+                logger.warning(
+                    "openai.tts.attempt_failed",
+                    error=repr(e),
+                    attempt=attempt + 1,
+                    max_retries=max_retries,
+                    text_len=len(text),
+                )
+                if attempt < max_retries:
+                    await asyncio.sleep(1.5)
+                    continue
+
+        # Все попытки исчерпаны
+        logger.error("openai.tts.failed", error=repr(last_error), text_len=len(text))
+        raise RuntimeError(f"Ошибка генерации голоса после {1 + max_retries} попыток: {last_error}")
 
 # Синглтон клиента
 openai_client = None

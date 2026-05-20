@@ -6,7 +6,9 @@
       "Bash(git commit -m ' *)",
       "Bash(tee logs/hitl_2026-04-25.stdout.log)",
       "WebFetch(domain:ru.wikipedia.org)",
-      "Bash(tee logs/ingest_patch_2026-04-25.log)"
+      "Bash(tee logs/ingest_patch_2026-04-25.log)",
+      "Bash(git commit *)",
+      "Read(//c/Users/Natalja/Desktop/Antigravity project//**)"
     ]
   }
 }
