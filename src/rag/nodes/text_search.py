@@ -23,9 +23,9 @@ logger = get_logger("rag.nodes.text_search")
 
 
 # Порог косинусной дистанции Chroma: чем меньше, тем ближе.
-# 0.20 — строгое совпадение, 0.35 — приемлемое, > 0.35 — шум.
+# 0.20 — строгое совпадение, 0.30 — приемлемое, > 0.30 — шум.
 _DISTANCE_STRICT = 0.20
-_DISTANCE_ACCEPTABLE = 0.35
+_DISTANCE_ACCEPTABLE = 0.30
 
 # Пороги rapidfuzz (0..100): 90 = почти точное, 75 = хорошее.
 _FUZZ_STRONG = 90
@@ -77,6 +77,30 @@ async def text_search(
 
     # --- 2. Fuzzy fallback по name_ru ---
     fuzz_hit = _fuzzy_place_lookup(kb_store, query)
+
+    # --- Эвристика: Детекция не-рижских городов и регионов вне базы данных ---
+    query_lower = query.lower()
+    non_riga_keywords = {
+        "юрмал", "jurmala", "yurmala", "лиелуп", "lielupe", "кемер", "kemeri",
+        "майор", "majori", "дзинтар", "dzintari", "булдур", "bulduri",
+        "дубулт", "dubulti", "вентспилс", "ventspils", "даугавпилс", "daugavpils",
+        "лиепай", "liepaja", "цесис", "cesis", "сигулд", "sigulda", "рундал", "rundale",
+        "бауск", "bauska", "черепах"
+    }
+    
+    has_non_riga_keyword = any(kw in query_lower for kw in non_riga_keywords)
+    fuzz_score = fuzz_hit.get("score", 0) if fuzz_hit else 0
+    # Если найден триггер не-рижского города, но нет сильного fuzzy-совпадения (score >= 85),
+    # принудительно уходим в dynamic fallback (Tavily Web Search)
+    if has_non_riga_keyword and fuzz_score < 85:
+        logger.info(
+            "text_search.non_riga_keyword_detected",
+            query=query[:100],
+            fuzz_score=fuzz_score,
+            action="force_dynamic_fallback"
+        )
+        semantic_hit = None
+        fuzz_hit = None
 
     # --- 3. Решаем, какой вариант выбрать ---
     chosen = _choose_match(semantic_hit, fuzz_hit)

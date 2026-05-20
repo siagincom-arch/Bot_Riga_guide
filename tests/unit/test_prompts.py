@@ -46,9 +46,10 @@ class _Place:
 
 
 class _Passage:
-    def __init__(self, topic: str, text_ru: str) -> None:
+    def __init__(self, topic: str, text_ru: str, source: str = "kb") -> None:
         self.topic = topic
         self.text_ru = text_ru
+        self.source = source
 
 
 class _Msg:
@@ -121,29 +122,6 @@ class TestGeneratorPrompt:
         assert "[anecdote]" in result
 
 
-# --- halluck.j2 ---
-
-class TestHalluckPrompt:
-    def test_renders_with_fixture(self, jinja_env: jinja2.Environment) -> None:
-        template = jinja_env.get_template("halluck.j2")
-        result = template.render(
-            passages=[
-                _Passage("history", "Домский собор основан в 1211 году."),
-                _Passage("fact", "Орган — один из крупнейших в мире."),
-            ],
-            answer="Домский собор основан в 1211 году епископом Альбертом.",
-        )
-        assert "1211" in result
-        assert '"pass"' in result
-        # Важная деталь: инструкция не считать легенды ошибкой
-        assert "legend" in result
-
-    def test_renders_with_empty_passages(self, jinja_env: jinja2.Environment) -> None:
-        template = jinja_env.get_template("halluck.j2")
-        result = template.render(passages=[], answer="Какой-то ответ.")
-        assert len(result) > 20
-
-
 # --- vision.j2 ---
 
 class TestVisionPrompt:
@@ -164,7 +142,7 @@ class TestVisionPrompt:
 # --- Sanity ---
 
 class TestAllTemplatesExist:
-    @pytest.mark.parametrize("name", ["generator.j2", "halluck.j2", "vision.j2"])
+    @pytest.mark.parametrize("name", ["generator.j2", "vision.j2"])
     def test_template_file_exists(self, name: str) -> None:
         path = PROMPTS_DIR / name
         assert path.exists(), f"Шаблон {name} не найден в {PROMPTS_DIR}"

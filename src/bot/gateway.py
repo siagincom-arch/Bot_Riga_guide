@@ -273,6 +273,10 @@ async def on_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             if place_id:
                 session.last_place_id = place_id
 
+            # M12: Запускаем генерацию TTS асинхронно для фото-запросов
+            if result.get("story"):
+                _trigger_tts(text=result["story"], chat_id=chat_id, context=context)
+
     except Exception as e:
         logger.error("msg.photo.rag_error", error=str(e))
         status = "llm_error"
@@ -628,6 +632,10 @@ async def _run_followup(
             )
             session.add_message(MsgRole.BOT, (result.get("summary") or "")[:500])
             session.last_place_id = place_id
+
+            # M12: Запускаем генерацию TTS асинхронно для callback-запросов
+            if result.get("story"):
+                _trigger_tts(text=result["story"], chat_id=chat_id, context=context)
 
     except Exception as e:
         logger.error("callback.followup.rag_error", error=str(e), place_id=place_id)

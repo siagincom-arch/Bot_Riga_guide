@@ -57,30 +57,75 @@ class OpenAIClient:
 
     async def text_to_speech(self, text: str, output_path: str | Path) -> None:
         """
-        Синтез речи (TTS) и сохранение в файл.
+        Синтез речи (TTS) и сохранение в файл с перекодированием в Opus для Telegram Voice.
 
         Args:
             text: Текст для озвучивания (рекомендуется не более 4096 символов).
-            output_path: Куда сохранить сгенерированный OGG Opus или MP3.
+            output_path: Куда сохранить сгенерированный OGG Opus.
         """
+        import os
+        import shutil
+        from tempfile import NamedTemporaryFile
+
+        temp_wav_path = None
         try:
-            # Для Telegram Voice (send_voice) лучше всего подходит формат opus (.ogg)
+            # 1. Генерируем WAV файл через OpenAI TTS
+            with NamedTemporaryFile(delete=False, suffix=".wav") as temp_wav_file:
+                temp_wav_path = temp_wav_file.name
+
             response = await self._client.audio.speech.create(
                 model="tts-1",
-                voice="alloy", # можно поменять на onyx, echo, fable, nova, shimmer
+                voice="alloy",
                 input=text,
-                response_format="opus"
+                response_format="wav"
             )
-            
-            import inspect
-            res = response.stream_to_file(output_path)
-            if inspect.iscoroutine(res):
-                await res
-                
-            logger.info("openai.tts.success", output_path=str(output_path), text_len=len(text))
+
+            response.write_to_file(temp_wav_path)
+
+            logger.info("openai.tts.wav_created", temp_path=temp_wav_path, text_len=len(text))
+
+            # 2. Перекодируем WAV в Telegram-совместимый OGG/Opus через ffmpeg
+            try:
+                cmd = [
+                    "ffmpeg", "-y", "-i", temp_wav_path,
+                    "-c:a", "libopus",
+                    "-b:a", "32k",
+                    "-ar", "48000",
+                    "-ac", "1",
+                    str(output_path)
+                ]
+                process = await asyncio.create_subprocess_exec(
+                    *cmd,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE
+                )
+                stdout, stderr = await process.communicate()
+
+                if process.returncode != 0:
+                    logger.error(
+                        "openai.tts.ffmpeg_failed",
+                        returncode=process.returncode,
+                        stdout=stdout.decode(errors="ignore"),
+                        stderr=stderr.decode(errors="ignore")
+                    )
+                    raise RuntimeError(f"ffmpeg conversion failed with code {process.returncode}")
+
+                logger.info("openai.tts.success", output_path=str(output_path), text_len=len(text))
+            except FileNotFoundError:
+                # Безопасный фоллбек: если ffmpeg не установлен на локальной машине разработчика
+                logger.warning("openai.tts.ffmpeg_not_found_fallback", output_path=str(output_path))
+                shutil.copy(temp_wav_path, output_path)
+                logger.info("openai.tts.fallback_copied_wav_as_ogg", output_path=str(output_path))
+
         except Exception as e:
             logger.error("openai.tts.failed", error=str(e), text_len=len(text))
             raise RuntimeError(f"Ошибка генерации голоса: {e}")
+        finally:
+            if temp_wav_path and os.path.exists(temp_wav_path):
+                try:
+                    os.remove(temp_wav_path)
+                except Exception as cleanup_err:
+                    logger.error("openai.tts.cleanup_failed", error=str(cleanup_err))
 
 # Синглтон клиента
 openai_client = None
